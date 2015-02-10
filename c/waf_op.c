@@ -3,11 +3,11 @@
 #include <string.h>
 #include "acmp.h"
 
-#define UNICODE_ERROR_CHARACTERS_MISSING    -1
-#define UNICODE_ERROR_INVALID_ENCODING      -2
-#define UNICODE_ERROR_OVERLONG_CHARACTER    -3
-#define UNICODE_ERROR_RESTRICTED_CHARACTER  -4
-#define UNICODE_ERROR_DECODING_ERROR        -5
+#define UNICODE_ERROR_CHARACTERS_MISSING    -10
+#define UNICODE_ERROR_INVALID_ENCODING      -11
+#define UNICODE_ERROR_OVERLONG_CHARACTER    -12
+#define UNICODE_ERROR_RESTRICTED_CHARACTER  -13
+#define UNICODE_ERROR_DECODING_ERROR        -14
 
 int containsWord (const char *target, size_t target_len, const char* match, size_t match_len)
 {
@@ -61,7 +61,8 @@ int pm_compile(char *pattern[], int pattern_count)
     return 0;
 }
 
-int pm_match(ACMP *parser, char *value, int value_len, char *out, int out_len) {
+int pm_match(ACMP *parser, char *value, int value_len, char *out, int out_len)
+{
     const char *match = NULL;
     apr_status_t rc = 0;
     ACMPT pt;
@@ -79,7 +80,7 @@ int pm_match(ACMP *parser, char *value, int value_len, char *out, int out_len) {
         }
         return 1;
     }
-    return rc;
+    return 0;
 }
 
 int within(const char *target, int target_length, const char *match, int match_length)
@@ -272,6 +273,7 @@ int validateUtf8Encoding(const char *value, int value_len)
     for(i = 0; i < value_len;) {
         int rc = detect_utf8_character((const unsigned char *)(value+i), bytes_left);
         if (rc <= 0) {
+            if (rc == 0) rc = -1;
             return rc;
         }
 
@@ -279,5 +281,48 @@ int validateUtf8Encoding(const char *value, int value_len)
         bytes_left -= rc;
     }
 
+    return 1;
+}
+
+int endsWith(const char *target, int target_len, const char *match, int match_length)
+{
+    if (match_length == 0) {
+        return 1;
+    }
+
+    /* This is impossible to match */
+    if (match_length > target_length) {
+        /* No match. */
+        return 0;
+    }
+
+    if (memcmp(match, (target + (target_length - match_length)), match_length) == 0) {
+        /* Match. */
+        return 1;
+    }
+    /* No match. */
+    return 0;
+}
+
+int beginsWith(const char *target, int target_length, const char *match, int match_length)
+{
+     /* The empty string always matches */
+    if (match_length == 0) {
+        /* Match. */
+        return 1;
+    }
+
+    /* This is impossible to match */
+    if (match_length > target_length) {
+        /* No match. */
+        return 0;
+    }
+
+    if (memcmp(match, target, match_length) == 0) {
+        /* Match. */
+        return 1;
+    }
+
+    /* No match. */
     return 0;
 }

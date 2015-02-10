@@ -57,13 +57,27 @@ end
 -- ARGS_GET_NAMES
 function M.get_args_get_names()
    local args = ngx_req_get_uri_args()
-   return get_keys(args)
+   -- TODO: 
+   --return get_keys(args)
+   return args
 end
 
 -- ARGS_POST_NAMES
 function M.get_args_post_names()
    local args = ngx_req_get_post_args()
-   return get_keys(args)
+   -- TODO:
+   --return get_keys(args)
+   return args
+end
+
+-- ARGS_NAMES
+function M.get_args_names()
+   local args = ngx_req_get_post_args()
+   local args2 = ngx_req_get_uri_args()
+   for k, v in pairs(args2) do
+      args[k] = v;
+   end
+   return args
 end
 
 -- QUERY_STRING
@@ -114,7 +128,9 @@ end
 -- REQUEST_COOKIES_NAMES
 function M.get_request_cookies_names()
    local cookies = M.get_request_cookies()
-   return get_keys(cookies)
+   -- TODO:
+   --return get_keys(cookies)
+   return cookies
 end
 
 -- REQUEST_FILENAME
@@ -130,7 +146,9 @@ end
 -- REQUEST_HEADERS_NAMES
 function M.get_request_headers_names()
    local headers = ngx_req_get_headers()
-   return get_keys(headers)
+   -- TODO:
+   --return get_keys(headers)
+   return headers
 end
 
 -- REQUEST_LINE
@@ -193,6 +211,7 @@ function M.get_response_headers_names()
    for k, v in string.gmatch(body, "([a-zA-Z-]+):(%S+)") do
       names[k]=v
    end
+   -- TODO: real array
    return names
 end
 
