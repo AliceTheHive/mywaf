@@ -9,7 +9,9 @@ local lib_pm = waf_lib.pm_match
 local fast_match = ngx.re.fast_match
 
 function M.rx(data, regex, key)
-   return fast_match(data, regex, "jo", key)
+   if fast_match(data, regex, "jo", key) then
+      return data
+   end
 end
 
 function M.rx_hash(hash, regex, key)
@@ -18,7 +20,7 @@ function M.rx_hash(hash, regex, key)
    for i, k in ipairs(keys) do
       local v = vals[i]
       if fast_match(v, regex, "jo", key) then
-         return keys[i], v
+         return v, keys[i]
       end
    end
 end

@@ -1,8 +1,12 @@
+use strict;
 use warnings;
+use Data::Dumper;
 use Carp qw( croak );
 open LOG, ">gen.log";
 
-my @GOBAL_VAR = ();
+my %GLOBAL_VAR = ();
+my %GLOBAL_EXP = ();
+my %CACHED_EXP = ();
 my %SUPPORTED_VAR = ();
 my %SUPPORTED_OP = (within=>1,
                     contains=>1,
@@ -28,6 +32,13 @@ my %COLLECTION_VAR = (
     RESPONSE_HEADERS_NAMES=>1,
     );
 
+sub append_list {
+    my ($list1, $list2) = @_;
+    if ($list2) {
+        push @$list1, @$list2;
+    }
+}
+
 sub is_var_supported {
     my ($var) = @_;
     return exists $SUPPORTED_VAR{uc($var)};
@@ -48,10 +59,43 @@ sub is_var_collection {
     return exists $COLLECTION_VAR{$var};
 }
 
+sub set_exp {
+    my ($exp, $result) = @_;
+    $GLOBAL_EXP{$exp} = $result;
+}
+
+sub get_exp {
+    my ($var) = @_;
+    return $GLOBAL_EXP{$var};
+}
+
+sub set_cached_exp {
+    my ($exp, $result) = @_;
+    $CACHED_EXP{$exp} = $result;
+}
+
+sub get_cached_exp {
+    my ($var) = @_;
+    return $CACHED_EXP{$var};
+}
+
+sub set_var {
+    my ($var, $result) = @_;
+    $GLOBAL_VAR{$var} = $result;
+}
+
+sub get_var {
+    my ($var) = @_;
+    return $GLOBAL_VAR{$var};
+}
+
 sub localize_op {
     for my $op (keys %SUPPORTED_OP) {
         print "local waf_$op = waf_op.$op\n"
     }
+    print "local waf_block = waf_act.block\n";
+    print "local waf_logdata = waf_act.logdata\n";
+    print "local waf_msg = waf_act.msg\n";
     print "local matched\n";
 }
 
@@ -136,7 +180,7 @@ sub get_lua_var_name {
 }
 
 # 获取modsecurity ARG
-sub get_mod_lua_arg_name {
+sub get_main_arg {
     my ($var) = @_;
     unless(exists $GLOBAL_VAR{$var}) {
         my $name = get_lua_var_name();
@@ -156,31 +200,28 @@ sub get_negtive_args {
     my %expresions = ();
     for my $var (keys %{ $negtive_args }) {
         my @names = @{ $negtive_args->{$var} };
-        $expresions{$var} = join "|", map { $var . ":" . $_ } @names;
+        $expresions{$var} = join "|", map { "!$var:$_" } @names;
     }
-    my @ok = ();
+    my @result = ();
     for my $var (keys %expresions) {
-        if (exists $GLOBAL_VAR{ $expresions{$var} }) {
-            push @ok, $var;
+        if (get_exp $expresions{$var}) {
+            push @result, get_exp $expresions{$var};
+            delete $negtive_args->{$var};
         }
     }
-    my @result;
-    for my $var (@ok) {
-        push @result, [$var, $GLOBAL_VAR{ $expresions{$var} }, 0,  $expresions{$var}];
-        delete $negtive_args->{$var};
-    }
+
     # 现在是没有之前没有处理过的negtive
     my %cloned = ();
     for my $var (keys %{ $negtive_args }) {
         unless(exists $cloned{$var}) {
             my $name = get_lua_var_name();
-            my $hash_name = get_mod_lua_arg_name($var);
+            my $hash_name = get_main_arg($var);
             print "local $name = copy('$hash_name')\n";
             $cloned{$var} = $name;
-            my @names = $negtive_args->{$var};
-            my $exp = join "|", map { $var . ":" . $_ } @names;
+            my @names = @ {$negtive_args->{$var} };
+            my $exp = join "|", map { "!$var:$_" } @names;
             push @result, [$var, $name, 0, $exp];
-            $GLOBAL_VAR{ $exp } = $name;
+            set_exp $exp, [$var, $name, 0, $exp];
         }
         my $name = $cloned{$var};
         for my $exp ( @{ $negtive_args->{$var} } ) {
@@ -201,19 +242,15 @@ sub get_single_args {
     my @result = ();
     for my $var (keys %$single_args) {
         my @names = @{ $single_args->{$var} };
-        for my $exp (@names) {
-            my $long_name = $var . ":" . $exp;
-            if (exists $GLOBAL_VAR{$long_name}) {
-                push @result, [$var, $GLOBAL_VAR{$long_name}, 1];
-                next;
-            }
-            unless(exists $GLOBAL_VAR{$var} ) {
-                my $lua_hash = get_mod_lua_arg_name($var);
+        for my $sub_var (@names) {
+            my $exp = $var . ":" . $sub_var;
+            unless(get_exp $exp) {
+                my $lua_hash = get_main_arg($var);
                 my $var_name = get_lua_var_name();
                 print "local $var_name = $lua_hash" . "['$exp']\n";
-                $GLOBAL_VAR{$long_name} = $var_name;
+                set_exp $exp, [$exp, $var_name, 1, $exp];
             }
-            push @result, [$long_name, $GLOBAL_VAR{$long_name}, 1, $long_name];
+            push @result, get_exp($exp);
         }
     }
     return \@result;
@@ -221,35 +258,37 @@ sub get_single_args {
 
 sub get_regex_args {
     my ($regex_args) = @_;
-    my @result = ();
+    my @result;
 
     for my $var ( keys %$regex_args ) {
         my @names = @{ $regex_args->{$var} };
         for my $regex (@names) {
             my $exp = $var . ":" . $regex;
-            unless ( exists $GLOBAL_VAR{$exp} ) {
-                my $lua_table = get_mod_lua_arg_name($var);
+            unless ( get_exp $exp ) {
+                my $lua_table = get_main_arg($var);
                 my $var_name = get_lua_var_name();
                 print "local $var_name = filter_by_rx($lua_table, '$regex')\n";
-                $GLOBAL_VAR{$exp} = $var_name;
+                set_exp $exp, [$var, $var_name, 0, $exp];
             }
-            push @result, [$var, $GLOBAL_VAR{$exp}, 0, $exp];
+            push @result, get_exp($exp);
         }
     }
-    return @result;
+    return \@result;
 }
 
 
 # 将参数表达式如REQUEST_COOKIES|!REQUEST_COOKIES:/__utm/|!REQUEST_COOKIES:/_pk_ref/|REQUEST_COOKIES_NAMES|ARGS_NAMES
 # 转化成lua表达式
-# 返回结果[ ['REQUEST_COOKIES', 'v_1', 0], ['REQUEST_COOKIES_NAMES', 'v_2', 0], ['ARGS_NAMES', 'v_3', 0] ]
+# 返回结果[ ['REQUEST_COOKIES', 'v_1', 0, '!REQUEST_COOKIES:/__utm/|!REQUEST_COOKIES:/_pk_ref/'],
+#           ['REQUEST_COOKIES_NAMES', 'v_2', 0, 'REQUEST_COOKIES_NAMES'],
+#           ['ARGS_NAMES', 'v_3', 0, 'ARGS_NAMES']  ]
 # 其中 0 表示是collection， 1表示是单个值
 sub generate_vars {
     my ($vars) = @_;
-    if (exists $GLOBAL_VAR{$vars} ) {
-        return $GLOBAL_VAR{$vars};
+    if (get_cached_exp $vars) {
+        return get_cached_exp $vars;
     }
-
+    my @tmp;
     # 怎样处理 REQUEST_HEADERS:'/(Content-Length|Transfer-Encoding)/'?
     while ($vars =~ /(!?[A-Z_]+:'\/[^'\/]+\/')/g) {
         push @tmp, $1;
@@ -291,46 +330,62 @@ sub generate_vars {
             push @{ $negtive_args{$1} }, $2;
         }
     }
-
+    my @result;
     my $res = get_single_args(\%single_args);
-    push @result, @$res;
+    #print "s:", Dumper($res);
+    append_list(\@result, $res);
 
     $res = get_regex_args(\%regex_args);
-    push @result, @$res;
+    #print "r:", Dumper($res);
+    append_list(\@result, $res);
 
     for my $var (keys %collection_args) {
+        unless (get_exp $var) {
+            set_exp $var, [$var, get_main_arg($var), (is_var_collection($var)? 0: 1), $var ];
+        }
         # 如果变量不存在nagtive的,那么就将变量的名字放到结果中
-        unless(exists $negtive_args{$var} || exists $negtive_rx_args{$var}) {
-            push @result, [$var, get_mod_lua_arg_name($var), (is_var_collection($var)? 0: 1) ];
+        unless (exists $negtive_args{$var}) {
+            push @result, get_exp $var;
         }
     }
-    my $res = get_negtive_args(\%negtive_args);
-    push @result, @$res;
+    $res = get_negtive_args(\%negtive_args);
+    #print "n:", Dumper($res);
+    append_list(\@result, $res);
 
     # 保留对该参数列表转化结果
-    $GLOBAL_VAR{$vars} = \@result;
+    set_cached_exp $vars, \@result;
     return \@result;
 }
 
+# 使用transaction动作处理已经生成的变量
 sub transact_vars {
     my ($list, $acts) = @_;
+
     my @result = ();
+    #print "in trans:", Dumper($list);
     for my $var_info (@$list) {
+        if (@$var_info < 4) {
+            croak "invalid var_info", Dumper($var_info);
+        }
         my ($var_name, $var_val, $var_type, $var_exp) = @$var_info;
         my @transactions  = grep { my $act = $_;
                                    my $act_op = $act->[0];
                                    my $act_var = $act->[1];
                                    $act_op eq "t" && $act_var ne "none" } @$acts;
-
+        # no need for transform
+        if (@transactions == 0) {
+            push @result, [$var_name, $var_val, $var_type];
+            next;
+        }
         my $act_exp = join ",", map { $_->[0] . ":" . $_->[1] } @transactions;
         my $long_name = "$var_exp trans_by $act_exp";
-        unless ($GLOBAL_VAR{$long_name}) {
+        unless (get_exp $long_name) {
             my $exp;
             for my $act (@transactions) {
                 my $act_op = $act->[0];
                 my $act_var = $act->[1];
                 unless ($exp) {
-                    $exp = "$act_var()";
+                    $exp = "$act_var($var_val)";
                 }
                 else {
                     $exp = "$act_var($exp)";
@@ -338,16 +393,67 @@ sub transact_vars {
             }
             my $lua_var = get_lua_var_name();
             print "local $lua_var = $exp\n";
-            $GLOBAL_VAR{$long_name} = $lua_var;
+            set_exp $long_name, [$var_name, $lua_var, $var_type];
         }
-        push @result, [$var_name, $GLOBAL_VAR{$long_name}, $var_type];
+        push @result, get_exp $long_name;
     }
     return \@result;
 }
 
+sub parse_act_var {
+    my ($var, $hash) = @_;
+    my $str;
+    if ($var =~ /^('|")?.*('|")?$/) {
+        $str = $1;
+    }
+    my $matched_name = "mached_name";
+    if ($hash && exists $hash->{'MATCHED_VAR_NAME'}) {
+        $matched_name = $hash->{'MATCHED_VAR_NAME'};
+        $var =~ s/%{MATCHED_VAR_NAME}/$matched_name/ig;
+        delete $hash->{'MATCHED_VAR_NAME'};
+    } else {
+        if ($str) {
+            $var =~ s/%{MATCHED_VAR_NAME}/${str} \.\. ${matched_name} \.\. $str/ig;
+        } else {
+            $var =~ s/%{MATCHED_VAR_NAME}/$matched_name/ig;
+        }
+    }
+
+    for my $k (%$hash) {
+        my $val = $hash->{$k};
+        croak "val is null $k ", Dumper($hash) unless $val;
+        if ($str) {
+            $var =~ s/%{MATCHED_VAR_NAME}/${str} \.\. ${val} \.\. $str/ig;
+        } else {
+            $var =~ s/%{MATCHED_VAR_NAME}/$val/ig;
+        }
+    }
+
+    if ($str) {
+        $var =~ s/%{MATCHED_VAR}/${str} \.\. matched \.\. $str/ig;
+    } else {
+        $var =~ s/%{MATCHED_VAR}/matched/ig;
+    }
+    return $var;
+}
+
+sub get_act_param {
+    my ($acts) = @_;
+    my %result;
+    
+    for my $act ( @$acts ) {
+        my $act_op = $act->[0];
+        my $act_var = $act->[1];
+        if ($act_op eq 'id' || $act_op eq 'msg') {
+            $result{$act_op} = $act_var;
+        }
+    }
+    return \%result;
+}
+
 sub generate {
     my ($ref) = @_;
-    @list_of_rules = @$ref;
+    my @list_of_rules = @$ref;
     for my $rule (@list_of_rules) {
         my $op = $rule->{op}->[0];
         my $var = $rule->{var};
@@ -360,14 +466,16 @@ sub generate {
         }
 
         my $list = generate_vars($var);
-        $list = transact_vars($list);
+        $list = transact_vars($list, $rule->{act});
         for my $var_info (@$list) {
             my ($var_name, $var_val, $var_type) = @$var_info;
+            my %act_param;
             if ($var_type == 0) {
-                print "matched = waf_${op}_hash($var_val, \"$op_param\")\n";
+                print "matched, matched_name = waf_${op}_hash($var_val, \"$op_param\")\n";
             }
             else {
                 print "matched = waf_${op}($var_val, \"$op_param\")\n";
+                $act_param{'MATCHED_VAR_NAME'} = $var_name;
             }
             if ($op_is_negtive) {
                 print "if not matched then\n";
@@ -375,18 +483,26 @@ sub generate {
             else {
                 print "if matched then\n";
             }
+            my $res = get_act_param($rule->{act});
+            %act_param = (%act_param, %$res);
 
             for my $act (@{ $rule->{act} }) {
                 my $act_op = $act->[0];
                 my $act_var = $act->[1];
                 if ($act_op eq "t" || $act_op eq "tag") {
-                    # pass
+                    # ingore t:xxx or tag:xxx
                 }
                 elsif ($act_op eq "setvar") {
                     gen_setvar($act_var);
                 }
                 else {
-                    print "waf_$act_op($act_var)\n";
+                    unless($act_var) {
+                        print "waf_$act_op()\n";
+                    }
+                    else {
+                        $act_var = parse_act_var($act_var, \%act_param);
+                        print "waf_$act_op($act_var)\n";
+                    }
                 }
             }
             print "end\n";
@@ -396,6 +512,6 @@ sub generate {
 
 load_waf_var_code();
 $/=undef;
-$str = <>;
+my $str = <>;
 localize_op();
 generate(parse($str))
