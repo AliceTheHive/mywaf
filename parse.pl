@@ -136,31 +136,48 @@ sub parse_act {
 sub parse {
     my ($str) = @_;
     $str =~ s/\\\n//mg;
+    my @lines = split /\n/, $str;
+
     my @list_of_rules = ();
-    while ($str=~ /^\s*SecRule\s+(\S+)\s+"((?:[^"\n]|\\\")+)"\s+(?:\\\n)?\s*"((?:[^"\n]|\\\")+)"/mg) {
-        my %rule = ();
-        my ($variables, $operator, $actions) = ($1, $2, $3);
-        #print "VAR: $variables, OP: $operator, ACT: $actions\n";
-        my $op = parse_op $operator;
-        my $act = parse_act $actions;
-        unless ($op) {
-            print "parse op error:$operator in $&\n";
-            exit(-1);
+    #while ($str=~ /^\s*SecRule\s+(\S+)\s+"((?:[^"\n]|\\\")+)"\s+(?:\\\n)?\s*"((?:[^"\n]|\\\")+)"/mg) {
+    for my $line (@lines) {
+        if ($line =~ /^\s*SecRule\s+(\S+)\s+"((?:[^"\n]|\\\")+)"\s+(?:\\\n)?\s*"((?:[^"\n]|\\\")+)"/) {
+            my %rule = ();
+            my ($variables, $operator, $actions) = ($1, $2, $3);
+            #print "VAR: $variables, OP: $operator, ACT: $actions\n";
+            my $op = parse_op $operator;
+            my $act = parse_act $actions;
+            unless ($op) {
+                print "parse op error:$operator in $&\n";
+                exit(-1);
+            }
+            unless ($act) {
+                print "parse act error:$actions\n";
+                exit(-1);
+            }
+            $rule{type} = 'SecRule';
+            $rule{var} = $variables;
+            $rule{op} = $op;
+            $rule{act} = $act;
+            push @list_of_rules, \%rule;
         }
-        unless ($act) {
-            print "parse act error:$actions\n";
-            exit(-1);
+        elsif ($line =~ /^\s*SecMarker\s+(\S+)/) {
+            my %rule = ();
+            $rule{type} = 'SecMarker';
+            $rule{var} = $1;
+            push @list_of_rules, \%rule;
         }
-        $rule{var} = $variables;
-        $rule{op} = $op;
-        $rule{act} = $act;
-        push @list_of_rules, \%rule;
     }
     return \@list_of_rules;
 }
 
 sub gen_setvar {
-    my ($str) = @_;
+    my ($str, $act_param) = @_;
+    # ignore this
+    # tx.%{rule.id}-OWASP_CRS/WEB_ATTACK/LDAP_INJECTION-%{matched_var_name}=%{tx.0}
+    if ($str =~ /[^-]+-.*=.+/) {
+        return;
+    }
 
     if ($str =~ /['\"]?([^'\"]+)/) {
         $str = $1;
@@ -168,8 +185,7 @@ sub gen_setvar {
     if ($str =~ /([^=]+)=\+(\S+)/) {
         $str = "$1 = $1 + $2";
     }
-
-    $str =~ s/%{([^{}]+)}/$1/;
+    $str = parse_act_var($str, $act_param);
 
     print "$str\n";
 }
@@ -400,71 +416,113 @@ sub transact_vars {
     return \@result;
 }
 
+sub replace_var_inside {
+    my ($expression, $var, $value, $tok) = @_;
+    $var = quotemeta($var);
+    if ($tok) {
+        $expression =~ s/%{$var}/${tok} \.\. ${value} \.\. $tok/ig;
+    } else {
+        $expression =~ s/%{$var}/$value/ig;
+    }
+    return $expression;
+}
+
 sub parse_act_var {
-    my ($var, $hash) = @_;
-    my $str;
-    if ($var =~ /^('|")?.*('|")?$/) {
-        $str = $1;
+    my ($statement, $hash) = @_;
+    my $tok;
+    if ($statement =~ /^('|")?.*('|")?$/) {
+        $tok = $1;
     }
     my $matched_name = "mached_name";
     if ($hash && exists $hash->{'MATCHED_VAR_NAME'}) {
         $matched_name = $hash->{'MATCHED_VAR_NAME'};
-        $var =~ s/%{MATCHED_VAR_NAME}/$matched_name/ig;
+        $statement =~ s/%{MATCHED_VAR_NAME}/$matched_name/ig;
         delete $hash->{'MATCHED_VAR_NAME'};
     } else {
-        if ($str) {
-            $var =~ s/%{MATCHED_VAR_NAME}/${str} \.\. ${matched_name} \.\. $str/ig;
-        } else {
-            $var =~ s/%{MATCHED_VAR_NAME}/$matched_name/ig;
-        }
+        $statement = replace_var_inside($statement, "MATCHED_VAR_NAME", ${matched_name}, $tok);
+    }
+    $statement = replace_var_inside($statement, "MATCHED_VAR", "matched[0]", $tok);
+
+    $hash->{"TX.0"} = 'matched[0]';
+    for my $key (keys %$hash) {
+        my $val = $hash->{$key};
+        $statement = replace_var_inside($statement, $key, $val, $tok);
     }
 
-    for my $k (%$hash) {
-        my $val = $hash->{$k};
-        croak "val is null $k ", Dumper($hash) unless $val;
-        if ($str) {
-            $var =~ s/%{MATCHED_VAR_NAME}/${str} \.\. ${val} \.\. $str/ig;
-        } else {
-            $var =~ s/%{MATCHED_VAR_NAME}/$val/ig;
-        }
-    }
+    # replace %{tx.score} to waf_var_tx.score
+    $statement =~ s/%{(tx\.\w+)}/$1/ig;
 
-    if ($str) {
-        $var =~ s/%{MATCHED_VAR}/${str} \.\. matched \.\. $str/ig;
-    } else {
-        $var =~ s/%{MATCHED_VAR}/matched/ig;
+    if ($statement =~ /(%{[^}]+})/) {
+        croak "unknown variable $1";
     }
-    return $var;
+    # replace tx.score to tx['score']
+    $statement =~ s/tx\.(\w+)/waf_var_tx\['$1'\]/ig;
+
+    return $statement;
 }
 
 sub get_act_param {
     my ($acts) = @_;
     my %result;
-    
+
     for my $act ( @$acts ) {
         my $act_op = $act->[0];
         my $act_var = $act->[1];
         if ($act_op eq 'id' || $act_op eq 'msg') {
-            $result{$act_op} = $act_var;
+            $result{'rule.' . $act_op} = $act_var;
         }
     }
     return \%result;
 }
 
+sub generate_acts {
+    my ($acts, $act_param) = @_;
+
+    for my $act (@$acts) {
+        my $act_op = $act->[0];
+        my $act_var = $act->[1];
+        if ($act_op eq "t" || 
+            $act_op eq "tag" ||
+            $act_op eq "capture") {
+            # ingore t:xxx or tag:xxx
+        }
+        elsif ($act_op eq "setvar") {
+            gen_setvar($act_var, $act_param);
+        }
+        elsif ($act_op eq "skipAfter") {
+            print "goto $act_var\n";
+        }
+        else {
+            unless($act_var) {
+                print "waf_$act_op()\n";
+            }
+            else {
+                $act_var = parse_act_var($act_var, $act_param);
+                print "waf_$act_op($act_var)\n";
+            }
+        }
+    }
+}
+
 sub generate {
     my ($ref) = @_;
     my @list_of_rules = @$ref;
+
     for my $rule (@list_of_rules) {
         my $op = $rule->{op}->[0];
         my $var = $rule->{var};
         my $op_param = $rule->{op}->[1];
         my $op_is_negtive = $rule->{op}->[2];
 
-        unless(is_op_supported($op)) {
+        if ($rule->{type} eq 'SecMarker') {
+            my $marker = $rule->{var};
+            print "::${marker}::\n";
+            next;
+        }
+        unless (is_op_supported($op)) {
             printf LOG "not suppport op $op (VAR: $var)\n";
             next;
         }
-
         my $list = generate_vars($var);
         $list = transact_vars($list, $rule->{act});
         for my $var_info (@$list) {
@@ -485,26 +543,8 @@ sub generate {
             }
             my $res = get_act_param($rule->{act});
             %act_param = (%act_param, %$res);
+            generate_acts $rule->{act}, \%act_param;
 
-            for my $act (@{ $rule->{act} }) {
-                my $act_op = $act->[0];
-                my $act_var = $act->[1];
-                if ($act_op eq "t" || $act_op eq "tag") {
-                    # ingore t:xxx or tag:xxx
-                }
-                elsif ($act_op eq "setvar") {
-                    gen_setvar($act_var);
-                }
-                else {
-                    unless($act_var) {
-                        print "waf_$act_op()\n";
-                    }
-                    else {
-                        $act_var = parse_act_var($act_var, \%act_param);
-                        print "waf_$act_op($act_var)\n";
-                    }
-                }
-            }
             print "end\n";
         }
     }
