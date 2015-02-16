@@ -543,19 +543,19 @@ sub get_act_param {
 
 sub generate_acts {
     my ($acts, $act_param) = @_;
-
+    my %ignore = ( t      => 1,
+                   tag    => 1,
+                   capture=> 1,
+                   rev    => 1,
+                   ver    => 1,
+                   maturity=>1,
+                   ctl    => 1,
+                   chain  => 1,
+                   accuracy=>1);
     for my $act (@$acts) {
         my $act_op = $act->[0];
         my $act_var = $act->[1];
-        if ($act_op eq "t" ||
-            $act_op eq "tag" ||
-            $act_op eq "capture" ||
-            $act_op eq "rev" ||
-            $act_op eq "ver" ||
-            $act_op eq "maturity" ||
-            $act_op eq "ctl" ||
-            $act_op eq "chain" ||
-            $act_op eq "accuracy") {
+        if (exists $ignore{$act_op}) {
             # ingore t:xxx or tag:xxx
             # because t:xxx have been done by transform_vars()
         }
