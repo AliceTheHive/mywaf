@@ -71,13 +71,11 @@ sub get_exp {
 
 sub set_cached_exp {
     my ($exp, $result) = @_;
-    croak "null" unless $exp;
     $CACHED_EXP{$exp} = $result;
 }
 
 sub get_cached_exp {
     my ($var) = @_;
-    croak "null" unless $var;
     return $CACHED_EXP{$var};
 }
 
@@ -113,65 +111,7 @@ sub load_waf_var_code {
     close FILE;
 }
 
-
-######################## BEGINING OF PARSING ################################
-my %ATTRIBUTE = ( id=>1, msg=>1 );
-
-sub is_attribute {
-    my ($str) = @_;
-    return (exists $ATTRIBUTE{$str});
-}
-
 sub parse_var {
-    my ($vars) = @_;
-    # $vars = quotemeta $vars;
-    if (get_cached_exp $vars) {
-        return get_cached_exp $vars;
-    }
-    my $original_exp = $vars;
-    my @tmp;
-    # 怎样处理 REQUEST_HEADERS:'/(Content-Length|Transfer-Encoding)/'?
-    while ($vars =~ /(!?[A-Z_]+:'\/[^'\/]+\/')/g) {
-        push @tmp, $1;
-    }
-    $vars =~ s/(!?[A-Z_]+:'\/[^'\/]+\/')//g;
-    my @list = split /\|/, $vars;
-    push @list, @tmp;
-
-    my @collection_args = ();
-    my %single_args = ();
-    my %negtive_args = ();
-    my %regex_args = ();
-
-    for my $v (@list) {
-        # skip empty string
-        unless($v) {
-            next;
-        }
-        if ($v ~~ /^([A-Z_]+)/ and ! is_var_supported($1)) {
-            next;
-        }
-        if ( $v =~ /^[A-Z_]+$/ ) {
-            push @collection_args, $v;
-        }
-        elsif ( $v =~ /^([A-Z_]+):\/([^\/]+)\/$/ ||
-                $v =~ /^([A-Z_]+):'\/([^'\/]+)\/'$/ ) {
-            push @{ $regex_args{$1} }, $2;
-        }
-        elsif ( $v =~ /^([A-Z_]+):(.+)/) {
-            push @{ $single_args{$1} }, $2;
-        }
-        elsif ( $v =~ /^!([A-Z_]+):'([^']+)'/ ||
-                $v =~ /^!([A-Z_]+):(.+)/) {
-            push @{ $negtive_args{$1} }, $2;
-        }
-    }
-    my %result = ( collection=> \@collection_args,
-                   regex   => \%regex_args,
-                   single  => \%single_args,
-                   negtive => \%negtive_args,
-                   original =>$original_exp);
-    return \%result;
 }
 
 sub parse_op {
@@ -191,14 +131,6 @@ sub parse_act {
     return \@a;
 }
 
-sub is_chain {
-    my ($rule) = @_;
-    for my $act (@{ $rule->{act} }) {
-        return 1 if ($act->[0] eq "chain");
-    }
-    return 0;
-}
-
 # 解释每一条rule 为 variables operator actions
 #
 sub parse {
@@ -206,14 +138,13 @@ sub parse {
     $str =~ s/\\\n//mg;
     my @lines = split /\n/, $str;
 
-    my $previous_rule;
     my @list_of_rules = ();
+    #while ($str=~ /^\s*SecRule\s+(\S+)\s+"((?:[^"\n]|\\\")+)"\s+(?:\\\n)?\s*"((?:[^"\n]|\\\")+)"/mg) {
     for my $line (@lines) {
         if ($line =~ /^\s*SecRule\s+(\S+)\s+"((?:[^"\n]|\\\")+)"\s+(?:\\\n)?\s*"((?:[^"\n]|\\\")+)"/) {
             my %rule = ();
             my ($variables, $operator, $actions) = ($1, $2, $3);
             #print "VAR: $variables, OP: $operator, ACT: $actions\n";
-            my $vars = parse_var $variables;
             my $op = parse_op $operator;
             my $act = parse_act $actions;
             unless ($op) {
@@ -225,41 +156,21 @@ sub parse {
                 exit(-1);
             }
             $rule{type} = 'SecRule';
-            $rule{var} = $vars;
+            $rule{var} = $variables;
             $rule{op} = $op;
             $rule{act} = $act;
-
-            map { $rule{$_->[0]} = $_->[1] } grep { is_attribute $_->[0] } @$act;
-
-            my $ignore = 0;
-            if ($previous_rule) {
-                $previous_rule->{"chain"} = \%rule;
-                $ignore = 1;
-            }
-            if (is_chain(\%rule)) {
-                $previous_rule = \%rule;
-            }
-            else {
-                $previous_rule = undef;
-            }
-            unless ( $ignore ) {
-                push @list_of_rules, \%rule;
-            }
+            push @list_of_rules, \%rule;
         }
         elsif ($line =~ /^\s*SecMarker\s+(\S+)/) {
             my %rule = ();
             $rule{type} = 'SecMarker';
             $rule{var} = $1;
             push @list_of_rules, \%rule;
-            $previous_rule = undef;
         }
     }
     return \@list_of_rules;
 }
 
-############################ END OF PARSING #################################
-
-########################## BEGIN OF GENERATION ##############################
 sub gen_setvar {
     my ($str, $act_param) = @_;
     # ignore this
@@ -390,40 +301,80 @@ sub get_regex_args {
 # 其中 0 表示是collection， 1表示是单个值
 sub generate_vars {
     my ($vars) = @_;
-    if (get_cached_exp $vars->{original}) {
-        return get_cached_exp $vars->{original};
+    if (get_cached_exp $vars) {
+        return get_cached_exp $vars;
     }
     my @tmp;
+    # 怎样处理 REQUEST_HEADERS:'/(Content-Length|Transfer-Encoding)/'?
+    while ($vars =~ /(!?[A-Z_]+:'\/[^'\/]+\/')/g) {
+        push @tmp, $1;
+    }
+    $vars =~ s/(!?[A-Z_]+:'\/[^'\/]+\/')//g;
+    my @list = split /\|/, $vars;
+    push @list, @tmp;
+
+    my %collection_args = ();
+    my %single_args = ();
+    my %negtive_args = ();
+    my %regex_args = ();
+
+    for my $v (@list) {
+        # skip empty string
+        unless($v) {
+            next;
+        }
+        #print $v , "\n";
+        unless ($v =~ /^!?([A-Z_]+)/) {
+            croak "$v is invalid\n";
+        }
+        unless(is_var_supported($1)) {
+            printf LOG "not suppport var $1\n";
+            next;
+        }
+        if ( $v =~ /^[A-Z_]+$/ ) {
+            $collection_args{$v} = 1;
+        }
+        elsif ( $v =~ /^([A-Z_]+):\/([^\/]+)\/$/ ||
+                $v =~ /^([A-Z_]+):'\/([^'\/]+)\/'$/ ) {
+            push @{ $regex_args{$1} }, $2;
+        }
+        elsif ( $v =~ /^([A-Z_]+):(.+)/) {
+            push @{ $single_args{$1} }, $2;
+        }
+        elsif ( $v =~ /^!([A-Z_]+):'([^']+)'/ ||
+                $v =~ /^!([A-Z_]+):(.+)/) {
+            push @{ $negtive_args{$1} }, $2;
+        }
+    }
     my @result;
-    my $res = get_single_args($vars->{single});
+    my $res = get_single_args(\%single_args);
     #print "s:", Dumper($res);
     append_list(\@result, $res);
 
-    $res = get_regex_args($vars->{regex});
+    $res = get_regex_args(\%regex_args);
     #print "r:", Dumper($res);
     append_list(\@result, $res);
 
-    for my $var (@{ $vars->{collection} } ) {
+    for my $var (keys %collection_args) {
         unless (get_exp $var) {
             set_exp $var, [$var, get_main_arg($var), (is_var_collection($var)? 0: 1), $var ];
         }
         # 如果变量不存在nagtive的,那么就将变量的名字放到结果中
-        unless (exists $vars->{negtive}->{$var} ) {
+        unless (exists $negtive_args{$var}) {
             push @result, get_exp $var;
         }
     }
-    $res = get_negtive_args($vars->{negtive});
+    $res = get_negtive_args(\%negtive_args);
     #print "n:", Dumper($res);
     append_list(\@result, $res);
 
     # 保留对该参数列表转化结果
-    set_cached_exp $vars->{original}, \@result;
+    set_cached_exp $vars, \@result;
     return \@result;
 }
 
 sub combine_vars {
     my ($list) = @_;
-    croak "list is null" unless $list;
     my $lua_table = get_lua_var_name();
 
     if (@$list == 1) {
@@ -533,11 +484,16 @@ sub parse_act_var {
 }
 
 sub get_act_param {
-    my ($rule) = @_;
+    my ($acts) = @_;
     my %result;
 
-    $result{'rule.id'} = $rule->{id};
-    $result{'rule.msg'} = $rule->{msg};
+    for my $act ( @$acts ) {
+        my $act_op = $act->[0];
+        my $act_var = $act->[1];
+        if ($act_op eq 'id' || $act_op eq 'msg') {
+            $result{'rule.' . $act_op} = $act_var;
+        }
+    }
     return \%result;
 }
 
@@ -554,7 +510,6 @@ sub generate_acts {
             $act_op eq "ver" ||
             $act_op eq "maturity" ||
             $act_op eq "ctl" ||
-            $act_op eq "chain" ||
             $act_op eq "accuracy") {
             # ingore t:xxx or tag:xxx
             # because t:xxx have been done by transform_vars()
@@ -577,32 +532,13 @@ sub generate_acts {
     }
 }
 
-my %DISRUPTIVE = (
-    allow => 1,
-    deny => 1,
-    block => 1
-    );
-sub is_act_disruptive {
-    my ($act) = @_;
-    return (exists $DISRUPTIVE{$act});
-}
-
-
-sub find_act {
-    my ($name, $acts) = @_;
-    for my $a (@$acts) {
-        if ($a->[0] eq $name) {
-            return $a;
-        }
-    }
-}
-
 #
 # When dealing with chained rules, non-disruptive actions are executed as
 # soon as the rule matches. The ctl action is considered a
 # non-disruptive action (examples of disruptive actions are: allow, deny.
 # block etc.).
 #
+
 sub generate {
     my ($ref) = @_;
     my @list_of_rules = @$ref;
@@ -623,32 +559,20 @@ sub generate {
             next;
         }
         my $list = generate_vars($var);
-        next unless $list;
         my $combined_var = combine_vars($list);
         my $lua_var = transform_vars($combined_var, $rule->{act});
 
         print "matched, matched_name = waf_${op}_hash_list($lua_var, \"$op_param\")\n";
-        my @disruptive = grep { is_act_disruptive $_->[0] } @{ $rule->{act} };
-        my @non_disruptive = grep { !is_act_disruptive $_->[0] } @{ $rule->{act} };
+
         if ($op_is_negtive) {
             print "if not matched then\n";
         }
         else {
             print "if matched then\n";
         }
-        my $res = get_act_param($rule);
-        if ($rule->{chain}) {
-            generate_acts \@non_disruptive, $res;
-            my $chained_rule = $rule->{chain};
-            $chained_rule->{id} = $rule->{id} unless $chained_rule->{id};
-            $chained_rule->{msg} = $rule->{msg} unless $chained_rule->{msg};
-            # todo 变量在嵌套if中变成局部可见了
-            generate([ $rule->{chain} ]);
-            generate_acts \@disruptive, $res;
-        }
-        else {
-            generate_acts $rule->{act}, $res;
-        }
+        my $res = get_act_param($rule->{act});
+        generate_acts $rule->{act}, $res;
+
         print "end\n";
     }
 }
@@ -657,6 +581,4 @@ load_waf_var_code();
 $/=undef;
 my $str = <>;
 localize_op();
-my $result = parse($str);
-#print Dumper($result);
-generate($result);
+generate(parse($str))

@@ -25,6 +25,15 @@ function M.rx_hash(hash, regex, key)
    end
 end
 
+function M.rx_hash_list(list, regex, key)
+   for _, h in ipairs(list) do   
+      local v, n = M.rx_hash(h, regex, key)
+      if v then
+         return v, n
+      end
+   end
+end
+
 function M.remove_key_by_rx(hash, key_rx)
    for k, v in ipairs(hash) do
       if fast_match(k, key_rx, "jo", key_rx) then
