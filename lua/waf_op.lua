@@ -8,13 +8,7 @@ local lib_within = waf_lib.within
 local lib_pm = waf_lib.pm_match
 local fast_match = ngx.re.fast_match
 
-function M.rx(data, regex, key)
-   if fast_match(data, regex, "jo", key) then
-      return data
-   end
-end
-
-function M.rx_hash(hash, regex, key)
+local function rx_hash(hash, regex, key)
    local keys = hash[0]
    local vals = hash[1]
    for i, k in ipairs(keys) do
@@ -25,9 +19,9 @@ function M.rx_hash(hash, regex, key)
    end
 end
 
-function M.rx_hash_list(list, regex, key)
+function M.rx(list, regex, key)
    for _, h in ipairs(list) do   
-      local v, n = M.rx_hash(h, regex, key)
+      local v, n = rx_hash(h, regex, key)
       if v then
          return v, n
       end
@@ -42,14 +36,16 @@ function M.remove_key_by_rx(hash, key_rx)
    end
 end
 
-function M.containsWord(str, word)
-   if lib_containsWord(str, #str, word, #word) ~= 0 then
-      return true
+local function do_list(func, list, word)
+   for _, h in ipairs(list) do   
+      local v, n = func(h, word)
+      if v then
+         return v, n
+      end
    end
-   return false
 end
 
-function M.containsWord_hash(hash, word)
+local function containsWord_hash(hash, word)
    local keys = hash[0]
    local vals = hash[1]
    local word_len = #word
@@ -61,16 +57,11 @@ function M.containsWord_hash(hash, word)
    return false
 end
 
--- duplicate! again and again, just for speed
---  
-function M.beginsWith(str, word)
-   if lib_beginsWith(str, #str, word, #word) ~= 0 then
-      return true
-   end
-   return false
+function M.containsWord(list, word)
+   return do_list(containsWord_hash, h, word)
 end
 
-function M.beginsWith_hash(hash, word)
+local function beginsWith_hash(hash, word)
    local keys = hash[0]
    local vals = hash[1]
    local word_len = #word
@@ -82,14 +73,11 @@ function M.beginsWith_hash(hash, word)
    return false
 end
 
-function M.endsWith(str, word)
-   if lib_endsWith(str, #str, word, #word) ~= 0 then
-      return true
-   end
-   return false
+function M.beginsWith(list, word)
+   return do_list(beginsWith_hash, list, word)
 end
 
-function M.endsWith_hash(hash, word)
+local function endsWith_hash(hash, word)
    local keys = hash[0]
    local vals = hash[1]
    local word_len = #word
@@ -101,14 +89,11 @@ function M.endsWith_hash(hash, word)
    return false
 end
 
-function M.within(str, word)
-   if lib_within(str, #str, word, #word) ~= 0 then
-      return true
-   end
-   return false
+function M.endsWith(list, word)
+   return do_list(endsWith_hash, list, word)
 end
 
-function M.within_hash(hash, word)
+local function within_hash(hash, word)
    local keys = hash[0]
    local vals = hash[1]
    local word_len = #word
@@ -120,14 +105,11 @@ function M.within_hash(hash, word)
    return false
 end
 
-function M.contains(str, word)
-   if lib_contains(str, #str, word, #word) ~= 0 then
-      return true
-   end
-   return false
+function M.within(list, word)
+   return do_list(within_hash, list, word)
 end
 
-function M.contains_hash(hash, word)
+local function contains_hash(hash, word)
    local keys = hash[0]
    local vals = hash[1]
    local word_len = #word
@@ -137,6 +119,10 @@ function M.contains_hash(hash, word)
       end
    end
    return false
+end
+
+function M.contains(list, word)
+   return do_list(contains_hash, list, word)
 end
 
 return M

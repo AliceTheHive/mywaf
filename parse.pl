@@ -7,6 +7,7 @@ open LOG, ">gen.log";
 my %GLOBAL_VAR = ();
 my %GLOBAL_EXP = ();
 my %CACHED_EXP = ();
+my %TRANSFORM_ACT = ();
 my %SUPPORTED_VAR = ();
 my %SUPPORTED_OP = (within=>1,
                     contains=>1,
@@ -14,7 +15,8 @@ my %SUPPORTED_OP = (within=>1,
                     rx=>1,
                     beginsWith=>1,
                     endsWith=>1,
-                    pm=>1
+                    pm=>1,
+                    eq=>1
     );
 
 my %COLLECTION_VAR = (
@@ -41,7 +43,11 @@ sub append_list {
 
 sub is_var_supported {
     my ($var) = @_;
-    return exists $SUPPORTED_VAR{uc($var)};
+    return ( exists $SUPPORTED_VAR{uc($var)} ) || ( $var =~ /TX/i );
+}
+
+sub is_transform_supported {
+    return exists $TRANSFORM_ACT{ uc($_[0]) };
 }
 
 sub is_op_supported {
@@ -103,19 +109,36 @@ sub localize_op {
 
 sub load_waf_var_code {
     open FILE, "< lua/waf_var.lua" or die "cannot open waf_var.lua";
+    my %result = ();
     while(<FILE>) {
         if (/function\s+M\.(get_([^ ()]+))/) {
             my ($func_name, $name) = ($1, $2);
-            $SUPPORTED_VAR{uc($name)} = $func_name;
+            #$SUPPORTED_VAR{uc($name)} = $func_name;
+            $result{uc($name)} = $func_name;
             #print uc($name), "\n";
         }
     }
     close FILE;
+    return %result;
 }
 
+sub load_waf_transform_code {
+    open FILE, "< lua/waf_transform.lua" or die "cannot open waf_transform.lua";
+    my %result = ();
+    while(<FILE>) {
+        if (/function\s+M\.(([^ ()]+))/) {
+            my ($func_name, $name) = ($1, $2);
+            $result{uc($name)} = $func_name;
+            #print uc($name), "\n";
+            print "local waf_trans_$func_name = waf_transform.$func_name\n";
+        }
+    }
+    close FILE;
+    return %result;
+}
 
 ######################## BEGINING OF PARSING ################################
-my %ATTRIBUTE = ( id=>1, msg=>1 );
+my %ATTRIBUTE = ( id=>1, msg=>1, phase=>1,maturity=>1, accuracy=>1, severity=>1);
 
 sub is_attribute {
     my ($str) = @_;
@@ -148,7 +171,8 @@ sub parse_var {
         unless($v) {
             next;
         }
-        if ($v ~~ /^([A-Z_]+)/ and ! is_var_supported($1)) {
+        if ($v ~~ /^([A-Z_]+)/ && ! is_var_supported($1)) {
+            print LOG "var is not supported ($v)\n";
             next;
         }
         if ( $v =~ /^[A-Z_]+$/ ) {
@@ -182,6 +206,33 @@ sub parse_op {
     if ($str =~/^([^@].*)/) {
         return ['rx', $1];
     }
+}
+
+sub act_token {
+    my $target = shift;
+    return sub {
+      TOKEN: {
+          return [$1, $2] if $target =~ /\G(\w+):'([^']+)'/gcx;
+          return [$1, $2] if $target =~ /\G(\w+):([^,]+)/gcx;
+          return [$1, undef] if $target =~ /\G(\w+)/gcx;
+          redo TOKEN if $target =~ /\G,/gcx;
+          return;
+        }
+    };
+}
+
+# "phase:2,capture,t:none,t:urlDecodeUni,block,msg:'Detects MySQL comments, conditions and ch(a)r injections',id:'981240'"
+sub parse_act0 {
+    my ($str) = @_;
+    my @result;
+    my $get_token = act_token($str);
+    my $tok;
+
+    while ($tok = $get_token->()) {
+        push @result, $tok;
+    }
+
+    return \@result;
 }
 
 sub parse_act {
@@ -271,10 +322,15 @@ sub gen_setvar {
     if ($str =~ /['\"]?([^'\"]+)/) {
         $str = $1;
     }
+    # tx.sql_injection_score=+%{tx.critical_anomaly_score}
     if ($str =~ /([^=]+)=\+(\S+)/) {
-        $str = "$1 = $1 + $2";
+        $str = "$1 = $1 and ($1 + $2) or $2";
     }
-    $str = parse_act_var($str, $act_param);
+    # tx.sqli_select_statement=%{tx.sqli_select_statement} %{matched_var}
+    if ($str =~ /([^=]+)=(%{[^}]+}(?:\s+%{[^}]+})+)/) {
+        $str = "$1 = " . join ' .. ', split /\s+/, $2;
+    }
+    $str = expand_macros($str, $act_param);
 
     print "$str\n";
 }
@@ -288,12 +344,18 @@ sub get_lua_var_name {
 sub get_main_arg {
     my ($var) = @_;
     unless(exists $GLOBAL_VAR{$var}) {
-        my $name = get_lua_var_name();
-        my $func_name = $SUPPORTED_VAR{uc($var)};
-        unless ($func_name) {
-            croak "$var is not suppored\n";
+        my $name;
+        if ($var =~ /TX/) {
+            $name = "waf_v";
         }
-        printf "local $name = waf_var.$func_name()\n";
+        else {
+            $name = get_lua_var_name();
+            my $func_name = $SUPPORTED_VAR{uc($var)};
+            unless ($func_name) {
+                croak "$var is not suppored\n";
+            }
+            print "local $name = waf_var.$func_name()\n";
+        }
         $GLOBAL_VAR{$var} = $name;
     }
     return $GLOBAL_VAR{$var};
@@ -351,9 +413,20 @@ sub get_single_args {
             my $exp = $var . ":" . $sub_var;
             unless(get_exp $exp) {
                 my $lua_hash = get_main_arg($var);
-                my $var_name = get_lua_var_name();
-                print "local $var_name = $lua_hash" . "['$exp']\n";
-                set_exp $exp, [$exp, $var_name, 1, $exp];
+                if ($var eq 'TX') {
+                    # convert TX:0 TX:1 to matched['0'] matched['1']
+                    if ($exp =~ /(\d+)$/) {
+                        set_exp $exp, [$exp, "matched\['$1'\]", 1, $exp];
+                    }
+                    else {
+                        set_exp $exp, [$exp, "$lua_hash\['$exp'\]", 1, $exp];
+                    }
+                }
+                else {
+                    my $var_name = get_lua_var_name();
+                    print "local $var_name = $lua_hash" . "['$exp']\n";
+                    set_exp $exp, [$exp, $var_name, 1, $exp];
+                }
             }
             push @result, get_exp($exp);
         }
@@ -421,16 +494,18 @@ sub generate_vars {
     return \@result;
 }
 
+# 将一条规则的多个变量整合为一个变量
 sub combine_vars {
     my ($list) = @_;
     croak "list is null" unless $list;
     my $lua_table = get_lua_var_name();
 
-    if (@$list == 1) {
-        my $var_info = $list->[0];
-        my ($var_name, $var_val, $var_type, $var_exp) = @$var_info;
-        return ["combine $var_exp", $var_val]
-    }
+    # if (@$list == 1) {
+    #     my $var_info = $list->[0];
+    #     my ($var_name, $var_val, $var_type, $var_exp) = @$var_info;
+    #     return ["combine $var_exp", $var_val]
+    # }
+
     my $exp = "combine " . join "|" , map { $_->[3] } @$list;
     if (get_cached_exp $exp) {
         return get_cached_exp $exp;
@@ -439,6 +514,7 @@ sub combine_vars {
     print "local $lua_table = {}\n";
     for my $var_info (@$list) {
         my ($var_name, $var_val, $var_type, $var_exp) = @$var_info;
+        # if var is single, convert it to a hash
         if ($var_type == 1) {
             my $lua_var = get_lua_var_name();
             print "local $lua_var = { $var_name=$var_val }\n";
@@ -473,12 +549,19 @@ sub transform_vars {
         for my $act (@transactions) {
             my $act_op = $act->[0];
             my $act_var = $act->[1];
+            unless (is_transform_supported($act_var)) {
+                print LOG "transform:$act_var is not supported\n";
+                next;
+            }
             unless ($exp) {
-                $exp = "$act_var($combined_val)";
+                $exp = "waf_trans_$act_var($combined_val)";
             }
             else {
-                $exp = "$act_var($exp)";
+                $exp = "waf_trans_$act_var($exp)";
             }
+        }
+        if (! $exp) {
+            return;
         }
         my $lua_var = get_lua_var_name();
         print "local $lua_var = $exp\n";
@@ -498,7 +581,7 @@ sub replace_var_inside {
     return $expression;
 }
 
-sub parse_act_var {
+sub expand_macros {
     my ($statement, $hash) = @_;
     my $tok;
     if ($statement =~ /^('|")?.*('|")?$/) {
@@ -514,20 +597,24 @@ sub parse_act_var {
     }
     $statement = replace_var_inside($statement, "MATCHED_VAR", "matched[0]", $tok);
 
-    $hash->{"TX.0"} = 'matched[0]';
+    # replace %{tx.score} to waf_var["TX:SCORE"]
+    while ($statement =~ /%{(tx\.(\w+))}/ig) {
+        my ($var1, $var2) = ($1, $2);
+        if($var2 =~ /^\d+$/) {
+            $hash->{$var1} = 'matched[' . uc($var2) . ']';
+        }
+        else {
+            $hash->{$var1} = "TX" . uc($var2);
+        }
+    }
     for my $key (keys %$hash) {
         my $val = $hash->{$key};
         $statement = replace_var_inside($statement, $key, $val, $tok);
     }
 
-    # replace %{tx.score} to waf_var_tx.score
-    $statement =~ s/%{(tx\.\w+)}/$1/ig;
-
     if ($statement =~ /(%{[^}]+})/) {
         croak "unknown variable $1 :", Dumper($hash);
     }
-    # replace tx.score to tx['score']
-    $statement =~ s/tx\.(\w+)/waf_var_tx\['$1'\]/ig;
 
     return $statement;
 }
@@ -548,16 +635,14 @@ sub generate_acts {
                    capture=> 1,
                    rev    => 1,
                    ver    => 1,
-                   maturity=>1,
                    ctl    => 1,
-                   chain  => 1,
-                   accuracy=>1);
+                   chain  => 1);
     for my $act (@$acts) {
         my $act_op = $act->[0];
         my $act_var = $act->[1];
-        if (exists $ignore{$act_op}) {
-            # ingore t:xxx or tag:xxx
-            # because t:xxx have been done by transform_vars()
+        # TODO: ajust code according phase
+        if (exists $ignore{$act_op} || is_attribute($act_op) ) {
+            # ingore t:xxx because t:xxx have been done by transform_vars()
         }
         elsif ($act_op eq "setvar") {
             gen_setvar($act_var, $act_param);
@@ -570,7 +655,7 @@ sub generate_acts {
                 print "waf_$act_op()\n";
             }
             else {
-                $act_var = parse_act_var($act_var, $act_param);
+                $act_var = expand_macros($act_var, $act_param);
                 print "waf_$act_op($act_var)\n";
             }
         }
@@ -626,22 +711,35 @@ sub generate {
         next unless $list;
         my $combined_var = combine_vars($list);
         my $lua_var = transform_vars($combined_var, $rule->{act});
-
-        print "matched, matched_name = waf_${op}_hash_list($lua_var, \"$op_param\")\n";
-        my @disruptive = grep { is_act_disruptive $_->[0] } @{ $rule->{act} };
-        my @non_disruptive = grep { !is_act_disruptive $_->[0] } @{ $rule->{act} };
+        if (!$lua_var) {
+            next;
+        }
+        my %number_op = (eq => "==", ge => ">=", le => "<=", 
+                         gt => ">", lt => "<", ne=> "~=" );
+        if ($op eq 'streq') {
+            print "matched = $lua_var == \"$op_param\"\n";
+        }
+        elsif(exists $number_op{$op}) {
+            print "matched = $lua_var $number_op{$op} $op_param\n";            
+        }
+        else {
+            print "matched, matched_name = waf_${op}($lua_var, \"$op_param\")\n";
+        }
         if ($op_is_negtive) {
             print "if not matched then\n";
         }
         else {
             print "if matched then\n";
         }
+        my @disruptive = grep { is_act_disruptive $_->[0] } @{ $rule->{act} };
+        my @non_disruptive = grep { !is_act_disruptive $_->[0] } @{ $rule->{act} };
         my $res = get_act_param($rule);
         if ($rule->{chain}) {
             generate_acts \@non_disruptive, $res;
             my $chained_rule = $rule->{chain};
-            $chained_rule->{id} = $rule->{id} unless $chained_rule->{id};
-            $chained_rule->{msg} = $rule->{msg} unless $chained_rule->{msg};
+            for my $a (keys %ATTRIBUTE) {
+                $chained_rule->{$a} = $rule->{$a} unless $chained_rule->{$a};
+            }
             # todo 变量在嵌套if中变成局部可见了
             generate([ $rule->{chain} ]);
             generate_acts \@disruptive, $res;
@@ -653,7 +751,8 @@ sub generate {
     }
 }
 
-load_waf_var_code();
+%SUPPORTED_VAR = load_waf_var_code();
+%TRANSFORM_ACT = load_waf_transform_code();
 $/=undef;
 my $str = <>;
 localize_op();
