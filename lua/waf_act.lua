@@ -4,7 +4,7 @@ local ngx_log = ngx.log
 local LOG_ERR = ngx.ERR
 local LOG_INFO = ngx.INFO
 
-function M.block()
+function M.block(v)
 end
 
 function M.logdata(v)

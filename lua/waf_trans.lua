@@ -22,4 +22,8 @@ function M.cmdLine(list)
    return list
 end
 
+function M.replaceComments(list)
+   return list
+end
+
 return M
