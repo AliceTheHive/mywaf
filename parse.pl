@@ -4,10 +4,10 @@ use Data::Dumper;
 use Carp qw( croak );
 open LOG, ">gen.log";
 
-my %GLOBAL_VAR = ();
-my %GLOBAL_EXP = ();
-my %CACHED_EXP = ();
-
+our %GLOBAL_VAR = ();
+our %GLOBAL_EXP = ();
+our %CACHED_EXP = ();
+my $in_recurrence = 0;
 my %COLLECTION_VAR = (
     ARGS => 1,
     ARGS_NAMES =>1,
@@ -60,16 +60,6 @@ sub get_cached_exp {
     my ($var) = @_;
     croak "null" unless $var;
     return $CACHED_EXP{$var};
-}
-
-sub set_var {
-    my ($var, $result) = @_;
-    $GLOBAL_VAR{$var} = $result;
-}
-
-sub get_var {
-    my ($var) = @_;
-    return $GLOBAL_VAR{$var};
 }
 
 use WafApi;
@@ -251,51 +241,6 @@ sub parse {
 
 ########################## BEGIN OF GENERATION ##############################
 
-# "%{a} foo %{b} bar" ==> %{a} .. " foo " .. %{b} .." bar"
-sub convert_str {
-    my ($right) = @_;
-    my @result;
-    my @list = split /(%{[^}]+})/, $right;
-    for (my $i = 0; $i <= $#list; $i += 2) {
-        $list[$i] = "'$list[$i]'";
-    }
-    return join " .. ", @list;
-}
-
-sub gen_param_expression {
-    my ($act) = @_;
-    my $str = $act->[1];
-    # ignore this
-    # tx.%{rule.id}-OWASP_CRS/WEB_ATTACK/LDAP_INJECTION-%{matched_var_name}=%{tx.0}
-    if ($str =~ /[^-]+-.*=.+/) {
-        return;
-    }
-
-    if ($str =~ /['\"]?([^'\"]+)/) {
-        $str = $1;
-    }
-    #  CONVERT tx.sql_injection_score=+%{tx.critical_anomaly_score}  TO
-    # %{tx.sql_injection_score} = %{tx.sql_injection_score} + %{tx.critical_anomaly_score}
-    if ($str =~ /([^=]+)=\+(\S+)/) {
-        $str = "%{$1} = %{$1} and (%{$1} + $2) or $2";
-    }
-    # CONVERT tx.sqli_select_statement=%{tx.sqli_select_statement} %{matched_var} TO
-    # %{tx.sqli_select_statement}=%{tx.sqli_select_statement} .. %{matched_var}
-    #elsif ($str =~ /([^=]+)=(%{[^}]+}(?:\s+%{[^}]+})+)/) {
-    #    $str = "%{$1} = " . join ' .. ', split /\s+/, $2;
-    #}
-    elsif ($str =~ /([^=]+)=(.+)/ && $act->[2] == ACT_HAVE_STR_VAR) {
-        $str = "%{$1}=" . convert_str($2);
-    }
-    elsif ($act->[2] == ACT_HAVE_STR_VAR) {
-        $str = convert_str($str);
-    }
-
-    $str = replace_macros($str);
-
-    return $str;
-}
-
 my $var_count = 0;
 sub get_lua_var_name {
     return "v_" . $var_count++;
@@ -366,12 +311,12 @@ sub get_negtive_args {
 }
 
 sub get_single_args {
-    my ($single_args) = @_;
+    my ($single_args, $no_prefix) = @_;
     my @result = ();
     for my $var (keys %$single_args) {
         my @names = @{ $single_args->{$var} };
         for my $sub_var (@names) {
-            my $exp = $var . ":" . $sub_var;
+            my $exp = ($no_prefix)? $sub_var : ($var . ":" . $sub_var);
             unless(get_exp $exp) {
                 my $lua_hash = get_main_arg($var);
                 if ($var eq 'TX') {
@@ -379,6 +324,7 @@ sub get_single_args {
                     if ($exp =~ /(\d+)$/) {
                         set_exp $exp, [$exp, "matched\['$1'\]", 1, $exp];
                     }
+                    # TX:PM_SCORE ==> waf_v['TX:PM_SCORE']
                     else {
                         set_exp $exp, [$exp, "$lua_hash\['$exp'\]", 1, $exp];
                     }
@@ -457,35 +403,41 @@ sub generate_vars {
 
 # 将一条规则的多个变量整合为一个变量
 sub combine_vars {
-    my ($list) = @_;
+    my ($list, $not_combine) = @_;
     croak "list is null" unless $list;
     my $lua_table = get_lua_var_name();
 
-    # if (@$list == 1) {
-    #     my $var_info = $list->[0];
-    #     my ($var_name, $var_val, $var_type, $var_exp) = @$var_info;
-    #     return ["combine $var_exp", $var_val]
-    # }
+    if ($not_combine) {
+        my $var_info = $list->[0];
+        my ($var_name, $var_val, $var_type, $var_exp) = @$var_info;
+        return ["combine $var_exp", $var_val]
+    }
 
     my $exp = "combine " . join "|" , map { $_->[3] } @$list;
     if (get_cached_exp $exp) {
         return get_cached_exp $exp;
     }
-
+    my $not_cache = 0;
     print "local $lua_table = {}\n";
     for my $var_info (@$list) {
         my ($var_name, $var_val, $var_type, $var_exp) = @$var_info;
+        # 不能缓存对于单个规则有效的变量。例如tx:1等
+        if ($var_name =~ /TX:/i) {
+            $not_cache = 1;
+        }
         # if var is single, convert it to a hash
         if ($var_type == 1) {
             my $lua_var = get_lua_var_name();
-            print "local $lua_var = { $var_name=$var_val }\n";
+            print "local $lua_var = { ['$var_name']=$var_val }\n";
             print "table.insert($lua_table, $lua_var)\n";
         }
         else {
             print "table.insert($lua_table, $var_val)\n";
         }
     }
-    set_cached_exp $exp, [ $exp, $lua_table ];
+    if (! $not_cache) {
+        set_cached_exp $exp, [ $exp, $lua_table ];
+    }
     return [ $exp, $lua_table ];
 }
 
@@ -567,39 +519,70 @@ sub replace_macros {
     return $statement;
 }
 
-sub get_act_param {
-    my ($rule) = @_;
-    my %result;
-
-    #$result{'rule.id'} = $rule->{id};
-    #$result{'rule.msg'} = $rule->{msg};
-    return \%result;
+# "%{a} foo %{b} bar" ==> %{a} .. " foo " .. %{b} .." bar"
+sub convert_str {
+    my ($right) = @_;
+    my @result;
+    my @list = split /(%{[^}]+})/, $right;
+    for (my $i = 0; $i <= $#list; $i += 2) {
+        $list[$i] = "'$list[$i]'";
+    }
+    return join " .. ", @list;
 }
 
-sub act_sort_func { 
+sub gen_param_expression {
+    my ($act) = @_;
+    my $str = $act->[1];
+    # ignore this
+    # tx.%{rule.id}-OWASP_CRS/WEB_ATTACK/LDAP_INJECTION-%{matched_var_name}=%{tx.0}
+    if ($str =~ /[^-]+-.*=.+/) {
+        return;
+    }
+
+    if ($str =~ /['\"]?([^'\"]+)/) {
+        $str = $1;
+    }
+    #  CONVERT tx.sql_injection_score=+%{tx.critical_anomaly_score}  TO
+    # %{tx.sql_injection_score} = %{tx.sql_injection_score} + %{tx.critical_anomaly_score}
+    elsif ($str =~ /([^=]+)=\+(\S+)/) {
+        $str = "%{$1} = %{$1} and (%{$1} + $2) or $2";
+    }
+    # CONVERT tx.sqli_select_statement=%{tx.sqli_select_statement} %{matched_var} TO
+    # %{tx.sqli_select_statement}=%{tx.sqli_select_statement} .. %{matched_var}
+    elsif ($str =~ /([^=]+)=(.+)/ && $act->[2] == ACT_HAVE_STR_VAR) {
+        $str = "%{$1}=" . convert_str($2);
+    }
+    elsif ($act->[2] == ACT_HAVE_STR_VAR) {
+        $str = convert_str($str);
+    }
+
+    $str = replace_macros($str);
+
+    return $str;
+}
+
+sub act_sort_func {
     my %priority = ( block => 1,
                      skipAfter => 2);
     my $ap = ($priority{$a->[0]}) || 0;
-    my $bp = ($priority{$b->[0]}) || 0;        
+    my $bp = ($priority{$b->[0]}) || 0;
     $ap <=> $bp;
 }
 
 sub generate_acts {
     my ($acts) = @_;
-    my %ignore = ( t      => 1,
-                   tag    => 1,
-                   capture=> 1,
-                   rev    => 1,
-                   ver    => 1,
-                   ctl    => 1,
+    my %ignore = ( t      => 1, tag    => 1,
+                   capture=> 1, rev    => 1,
+                   ver    => 1, ctl    => 1,
                    chain  => 1);
-
+    # 为了让block操作和skipAfter操作最后执行，进行action排序
     my @sorted = sort act_sort_func  @$acts;
-    for my $act (@sorted) {
+    # ignore t:xxx because t:xxx have been done by transform_vars()
+    my @list = grep { !exists $ignore{$_->[0]} && !is_attribute($_->[0]) } @sorted;
+    for my $act (@list) {
         my $act_op = $act->[0];
         my $act_var = $act->[1];
         # TODO: ajust code according phase
-
         if ($act_op eq "setvar") {
             print gen_param_expression($act), "\n";
         }
@@ -609,22 +592,15 @@ sub generate_acts {
         elsif ($act_op eq "skipAfter") {
             print "goto $act_var\n";
         }
-        elsif (exists $ignore{$act_op} || is_attribute($act_op) ) {
-            # ingore t:xxx because t:xxx have been done by transform_vars()
+        elsif($act_op eq 'block') {
+            print "waf_block(waf_v)\n";
+        }
+        elsif ($waf_act->is_supported($act_op) ) {
+            $act_var = $act_var && gen_param_expression($act);
+            print "waf_$act_op($act_var)\n";
         }
         else {
-            unless($act_var) {
-                if($act_op eq 'block') {
-                    print "waf_block(waf_v)\n";
-                }
-                else {
-                    print "waf_$act_op()\n";
-                }
-            }
-            else {
-                $act_var = gen_param_expression($act);
-                print "waf_$act_op($act_var)\n";
-            }
+            print LOG "act_op: $act_op is not suppored\n";
         }
     }
 }
@@ -638,15 +614,39 @@ sub is_act_disruptive {
     my ($act) = @_;
     return (exists $DISRUPTIVE{$act});
 }
-
-
-sub find_act {
-    my ($name, $acts) = @_;
-    for my $a (@$acts) {
-        if ($a->[0] eq $name) {
-            return $a;
+my %number_op = (eq => "==", ge => ">=", le => "<=",
+                 gt => ">", lt => "<", ne=> "~=" );
+sub generate_if_statement {
+    my ($lua_var, $rule_op) = @_;
+    my ($op, $op_param, $op_is_negtive) = @$rule_op;
+    if ($op eq 'streq') {
+        print "matched = ( $lua_var == \"$op_param\" )\n";
+    }
+    elsif(exists $number_op{$op}) {
+        print "matched = ( $lua_var $number_op{$op} $op_param)\n";
+    }
+    else {
+        # 处理 '@beginWiths %{request_header.host}'的情况
+        if ($op_param =~ /%{([a-zA-Z_]+)\.([a-zA-Z_]+)}/) {
+            my %single_arg = ( $1 => [ $2 ] );
+            my $r = get_single_args(\%single_arg, 1);
+            $op_param = $r->[0]->[1]; # $var_name
+            print "matched, matched_name = waf_${op}($lua_var, $op_param)\n";
+        }
+        else {
+            print "matched, matched_name = waf_${op}($lua_var, \"$op_param\")\n";
         }
     }
+    if ($op_is_negtive) {
+        print "if not matched then\n";
+    }
+    else {
+        print "if matched then\n";
+    }
+}
+
+sub generate_end_if {
+    print "end\n";
 }
 
 #
@@ -659,6 +659,12 @@ sub generate {
     my ($ref) = @_;
     my @list_of_rules = @$ref;
 
+    if ($in_recurrence) {
+        local %GLOBAL_VAR = ();
+        local %GLOBAL_EXP = ();
+        local %CACHED_EXP = ();
+    }
+
     for my $rule (@list_of_rules) {
         my $op = $rule->{op}->[0];
         my $var = $rule->{var};
@@ -670,37 +676,28 @@ sub generate {
             print "::${marker}::\n";
             next;
         }
-        unless ($waf_op->is_supported($op)) {
+        if (! $waf_op->is_supported($op) &&
+            ! exists $number_op{$op} &&
+            $op ne 'streq') {
             printf LOG "op: $op not suppported\n";
             next;
         }
+
         my $list = generate_vars($var);
         next unless $list;
-        my $combined_var = combine_vars($list);
+
+        my $not_combine = exists $number_op{$op} && $list->[0];
+
+        my $combined_var = combine_vars($list, $not_combine);
+
         my $lua_var = transform_vars($combined_var, $rule->{act});
         if (!$lua_var) {
             next;
         }
-        my %number_op = (eq => "==", ge => ">=", le => "<=", 
-                         gt => ">", lt => "<", ne=> "~=" );
-        if ($op eq 'streq') {
-            print "matched = $lua_var == \"$op_param\"\n";
-        }
-        elsif(exists $number_op{$op}) {
-            print "matched = $lua_var $number_op{$op} $op_param\n";            
-        }
-        else {
-            print "matched, matched_name = waf_${op}($lua_var, \"$op_param\")\n";
-        }
-        if ($op_is_negtive) {
-            print "if not matched then\n";
-        }
-        else {
-            print "if matched then\n";
-        }
+        generate_if_statement($lua_var, $rule->{op});
+
         my @disruptive = grep { is_act_disruptive $_->[0] } @{ $rule->{act} };
         my @non_disruptive = grep { !is_act_disruptive $_->[0] } @{ $rule->{act} };
-        #my $res = get_act_param($rule);
         if ($rule->{chain}) {
             generate_acts \@non_disruptive;
             my $chained_rule = $rule->{chain};
@@ -708,13 +705,15 @@ sub generate {
                 $chained_rule->{$a} = $rule->{$a} unless $chained_rule->{$a};
             }
             # todo 变量在嵌套if中变成局部可见了
+            $in_recurrence = 1;
             generate([ $rule->{chain} ]);
+            $in_recurrence = 0;
             generate_acts \@disruptive;
         }
         else {
             generate_acts $rule->{act};
         }
-        print "end\n";
+        generate_end_if();
     }
 }
 
