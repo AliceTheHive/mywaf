@@ -48,7 +48,7 @@ int pm_compile(char *pattern[], int pattern_count)
     ACMP *p;
 
     if (NULL == pattern || 0 == pattern_count) {
-        return -1;
+        return NULL;
     }
 
     p = acmp_create(0, NULL);
@@ -58,7 +58,7 @@ int pm_compile(char *pattern[], int pattern_count)
         acmp_add_pattern(p, pattern[i], NULL, NULL, 0);
     }
     acmp_prepare(p);
-    return 0;
+    return p;
 }
 
 int pm_match(ACMP *parser, char *value, int value_len, char *out, int out_len)
