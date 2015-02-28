@@ -42,7 +42,7 @@ int containsWord (const char *target, size_t target_len, const char* match, size
     return 0;
 }
 
-int pm_compile(char *pattern[], int pattern_count)
+ACMP *pm_compile(char *pattern[], int pattern_count)
 {
     int i;
     ACMP *p;
@@ -284,7 +284,7 @@ int validateUtf8Encoding(const char *value, int value_len)
     return 1;
 }
 
-int endsWith(const char *target, int target_len, const char *match, int match_length)
+int endsWith(const char *target, int target_length, const char *match, int match_length)
 {
     if (match_length == 0) {
         return 1;

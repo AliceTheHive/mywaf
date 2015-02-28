@@ -139,9 +139,9 @@ sub parse_op {
 }
 
 use constant {
-    ACT_HAVE_STR_VAR => 0,
-    ACT_HAVE_VAR => 1,
-    ACT_HAVE_NO_VAR => 2
+    ACT_HAVE_STR_VAR => 1,
+    ACT_HAVE_VAR => 2,
+    ACT_HAVE_NO_VAR => 3
 };
 
 sub act_token {
@@ -538,13 +538,13 @@ sub gen_param_expression {
     if ($str =~ /[^-]+-.*=.+/) {
         return;
     }
-
+    # 'xxx' ==> xxx
     if ($str =~ /['\"]?([^'\"]+)/) {
         $str = $1;
     }
     #  CONVERT tx.sql_injection_score=+%{tx.critical_anomaly_score}  TO
     # %{tx.sql_injection_score} = %{tx.sql_injection_score} + %{tx.critical_anomaly_score}
-    elsif ($str =~ /([^=]+)=\+(\S+)/) {
+    if ($str =~ /([^=]+)=\+(\S+)/) {
         $str = "%{$1} = %{$1} and (%{$1} + $2) or $2";
     }
     # CONVERT tx.sqli_select_statement=%{tx.sqli_select_statement} %{matched_var} TO
@@ -634,6 +634,7 @@ sub generate_if_statement {
             print "matched, matched_name = waf_${op}($lua_var, $op_param)\n";
         }
         else {
+            $op_param =~ s{\\([^\\])}{\\\\$1}g if $op eq 'rx';
             print "matched, matched_name = waf_${op}($lua_var, \"$op_param\")\n";
         }
     }

@@ -8,9 +8,9 @@ typedef struct {
     void *ptr;
 } ACMPT;
 ACMP *acmp_create(int flags);
-typedef void (*acmp_callback_t)(ACMP *, void *, apr_size_t, apr_size_t);
-apr_status_t acmp_add_pattern(ACMP *parser, const char *pattern,
-    acmp_callback_t callback, void *data, apr_size_t len);
+typedef void (*acmp_callback_t)(ACMP *, void *, size_t, size_t);
+int acmp_add_pattern(ACMP *parser, const char *pattern,
+acmp_callback_t callback, void *data, size_t len);
 ]]
 waf_lib = ffi.load("/usr/local/openresty/lualib/libwaf.so")
 

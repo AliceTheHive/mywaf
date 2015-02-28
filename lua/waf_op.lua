@@ -133,12 +133,18 @@ function M.contains(list, word)
    return do_list(contains_hash, list, word)
 end
 
+local acmp_cache = new_tab(4, 4)
+
 local function pm_hash(hash, word)
    local keys = hash[0]
    local vals = hash[1]
    local out =ffi_new("char[?]", 256)
    local out_len = #word
    local acmp = acmp_cache[word]
+   if not acmp then
+      ngx.log(ngx.ERR, "acmp is null", word)
+      return true
+   end
    for i, v in ipairs(vals) do
       if lib_acmp_match(acmp, v, #v, out, out_len) ~= 0 then
          return ffi_string(out, out_len), keys[i]
@@ -146,8 +152,6 @@ local function pm_hash(hash, word)
    end
    return false
 end
-
-local acmp_cache = new_tab(4, 4)
 
 function M.pm(list, word)
    if acmp_cache[word] then

@@ -46,17 +46,17 @@ function M.removeNulls(list)
 end
 
 function M.trim(list)
-   do_list(string_utils.trim, list)
+   --do_list(string_utils.trim, list)
    return list
 end
 
 function M.trimLeft(list)
-   do_list(string_utils.trimLeft, list)
+   --do_list(string_utils.trimLeft, list)
    return list
 end
 
 function M.trimRight(list)
-   do_list(string_utils.trimRight, list)
+   --do_list(string_utils.trimRight, list)
    return list
 end
 

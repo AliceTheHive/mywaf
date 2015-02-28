@@ -4,7 +4,7 @@
 #include <lauxlib.h>
 
 // gcc -shared -fpic -O -I/usr/local/include/luajit-2.1 string_utils.c -o string_utils.so
-
+#if 0
 int trim(lua_State *L)
 {
     const char *front;
@@ -62,3 +62,4 @@ int luaopen_trim(lua_State *L)
     lua_register(L,"string_utils",trimRight);
     return 0;
 }
+#endif
