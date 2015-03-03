@@ -1,4 +1,4 @@
-EXECUTABLE :=waf_lib.so -shared #
+EXECUTABLE :=libwaf.so -shared #
 LIBDIR:=                # static lib
 LIBS :=                 # static lib name
 INCLUDES:=.             # header file dir

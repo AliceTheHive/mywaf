@@ -42,26 +42,37 @@ int containsWord (const char *target, size_t target_len, const char* match, size
     return 0;
 }
 
-ACMP *pm_compile(char *pattern[], int pattern_count)
+ACMP *pm_compile(const char *phrase)
 {
-    int i;
     ACMP *p;
+    const char *next;
 
-    if (NULL == pattern || 0 == pattern_count) {
+    if (NULL == phrase || '\0' == *phrase) {
         return NULL;
     }
 
     p = acmp_create(0, NULL);
-    if (p == NULL) return 0;
+    if (p == NULL) return NULL;
 
-    for (i = 0; i < pattern_count; i++) {
-        acmp_add_pattern(p, pattern[i], NULL, NULL, 0);
+    for (;;) {
+        while((isspace(*phrase) != 0) && (*phrase != '\0')) phrase++;
+        if (*phrase == '\0') break;
+        next = phrase;
+        while((isspace(*next) == 0) && (*next != 0)) next++;
+        acmp_add_pattern(p, phrase, NULL, NULL, next - phrase);
+        phrase = next;
     }
+
     acmp_prepare(p);
     return p;
 }
 
-int pm_match(ACMP *parser, char *value, int value_len, char *out, int out_len)
+int is_pm_compile_ok(ACMP *acmp)
+{
+    return (acmp != NULL);
+}
+
+int pm_match(ACMP *parser, const char *value, int value_len, char *out, int out_len)
 {
     const char *match = NULL;
     apr_status_t rc = 0;

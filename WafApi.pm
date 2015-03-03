@@ -21,7 +21,10 @@ sub load_waf_api {
     for (<FILE>) {
         if (/$reg/) {
             my ($func_name, $name) = ($1, $2);
-            $result{ uc($name) } = $func_name    
+            if($name eq '' || $func_name eq '') {
+                next;
+            }
+            $result{ uc($name) } = [$func_name, $name];
         }
     }
     close FILE;
@@ -35,13 +38,16 @@ sub is_supported {
 
 sub get_function_name {
     my ($self, $api) = @_;
-    return $self->{table}->{uc($api)};
+    return $self->{table}->{uc($api)}->[0];
 }
 
 sub gen_code {
     my ($self) = @_;
+    my $module = $self->{module_name};
+    print "local $module = require '$module'\n";
     while (my ($key, $value) = each $self->{table}) {
-        print "local waf_", lc($key), " = ", $self->{module_name}, ".$value\n"; 
+        my ($func_name, $var_name) = @$value;
+        print "local waf_$var_name = ", $self->{module_name}, ".$func_name\n"; 
     }
 }
 

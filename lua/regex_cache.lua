@@ -290,7 +290,7 @@ local function destroy_compiled_regex(compiled)
 end
 
 
-local function re_match_compile(regex, opts, key)
+local function re_match_compile(regex, opts)
     local flags = 0
     local pcre_opts = 0
 
@@ -300,7 +300,7 @@ local function re_match_compile(regex, opts, key)
         opts = ""
     end
 
-    local compiled
+    local compiled, key
     local compile_once = (band(flags, FLAG_COMPILE_ONCE) == 1)
 
     -- FIXME: better put this in the outer scope when fixing the ngx.re API's
@@ -315,6 +315,7 @@ local function re_match_compile(regex, opts, key)
     end
 
     if compile_once then
+       key = regex .. '\0' .. opts
         compiled = cache_get(key)
     end
 
@@ -352,8 +353,8 @@ local function re_match_compile(regex, opts, key)
 end
 
 
-local function re_match_helper(subj, regex, opts, want_caps, res, nth, key)
-    local compiled, compile_once, flags = re_match_compile(regex, opts, key)
+local function re_match_helper(subj, regex, opts, want_caps, res, nth)
+    local compiled, compile_once, flags = re_match_compile(regex, opts)
     if compiled == nil then
         -- compiled_once holds the error string
         if not want_caps then
@@ -432,12 +433,12 @@ local function re_match_helper(subj, regex, opts, want_caps, res, nth, key)
     return res
 end
 
-function ngx.re.fast_match(subj, regex, opts, key)
-    return re_match_helper(subj, regex, opts, nil, true, nil, key)
+function ngx.re.fast_match(subj, regex, opts)
+    return re_match_helper(subj, regex, opts, nil, true, nil)
 end
 
 function ngx.re.fast_find(subj, regex, opts, key, nth)
-    return re_match_helper(subj, regex, opts, false, nil, nth, key)
+    return re_match_helper(subj, regex, opts, false, nil, nth)
 end
 
 

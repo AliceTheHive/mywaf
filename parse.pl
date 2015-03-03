@@ -289,7 +289,7 @@ sub get_negtive_args {
         unless(exists $cloned{$var}) {
             my $name = get_lua_var_name();
             my $hash_name = get_main_arg($var);
-            print "local $name = copy('$hash_name')\n";
+            print "local $name = waf_var.copy($hash_name)\n";
             $cloned{$var} = $name;
             my @names = @ {$negtive_args->{$var} };
             my $exp = join "|", map { "!$var:$_" } @names;
@@ -300,10 +300,10 @@ sub get_negtive_args {
         for my $exp ( @{ $negtive_args->{$var} } ) {
             # 非正则表达式，如 !REQUEST_COOKIES:user_name
             if ($exp =~ /\/([^\/]+)\/$/) {
-                print "remove_by_rx_key($name, '$1')\n";
+                print "waf_var.remove_by_rx_key($name, '$1')\n";
             }
             else {
-                print "remove_by_key($name, '$exp')\n";
+                print "waf_var.remove_by_key($name, '$exp')\n";
             }
         }
     }
@@ -322,7 +322,7 @@ sub get_single_args {
                 if ($var eq 'TX') {
                     # convert TX:0 TX:1 to matched['0'] matched['1']
                     if ($exp =~ /(\d+)$/) {
-                        set_exp $exp, [$exp, "matched\['$1'\]", 1, $exp];
+                        set_exp $exp, [$exp, "waf_v_tx\['$1'\]", 1, $exp];
                     }
                     # TX:PM_SCORE ==> waf_v['TX:PM_SCORE']
                     else {
@@ -352,7 +352,7 @@ sub get_regex_args {
             unless ( get_exp $exp ) {
                 my $lua_table = get_main_arg($var);
                 my $var_name = get_lua_var_name();
-                print "local $var_name = filter_by_rx($lua_table, '$regex')\n";
+                print "local $var_name = waf_var.filter_by_rx_key($lua_table, '$regex')\n";
                 set_exp $exp, [$var, $var_name, 0, $exp];
             }
             push @result, get_exp($exp);
@@ -466,11 +466,12 @@ sub transform_vars {
                 print LOG "transform:$act_var is not supported\n";
                 next;
             }
+            my $func_name = $waf_trans->get_function_name($act_var);
             unless ($exp) {
-                $exp = "waf_$act_var($combined_val)";
+                $exp = "waf_$func_name($combined_val)";
             }
             else {
-                $exp = "waf_$act_var($exp)";
+                $exp = "waf_$func_name($exp)";
             }
         }
         if (! $exp) {
@@ -493,15 +494,15 @@ sub replace_var_inside {
 sub replace_macros {
     my ($statement) = @_;
     my $hash;
-    $hash->{MATCHED_VAR} = "matched[0]";
-    $hash->{MATCHED_VAR_NAME} = "mached_name";
+    $hash->{MATCHED_VAR} = "waf_v['MATCHED_VAR']";
+    $hash->{MATCHED_VAR_NAME} = "waf_v['MATCHED_VAR_NAME']";
     $hash->{'rule.msg'} = "waf_v['RULE:MSG']";
     $hash->{'rule.id'} = "waf_v['RULE:ID']";
     # replace %{tx.score} to waf_v["TX:SCORE"]
     while ($statement =~ /%{(tx\.(\w+))}/ig) {
         my ($var1, $var2) = ($1, $2);
         if($var2 =~ /^\d+$/) {
-            $hash->{$var1} = 'matched[' . uc($var2) . ']';
+            $hash->{$var1} = 'waf_v_tx[' . uc($var2) . ']';
         }
         else {
             $hash->{$var1} = "waf_v['TX:" . uc($var2) . "']";
@@ -550,7 +551,13 @@ sub gen_param_expression {
     # CONVERT tx.sqli_select_statement=%{tx.sqli_select_statement} %{matched_var} TO
     # %{tx.sqli_select_statement}=%{tx.sqli_select_statement} .. %{matched_var}
     elsif ($str =~ /([^=]+)=(.+)/ && $act->[2] == ACT_HAVE_STR_VAR) {
-        $str = "%{$1}=" . convert_str($2);
+        my ($right, $left) = ($1, $2);
+        if ($left =~ /%{$right}/) {
+            $str = "if %{$right} == nil then %{$right} = '' end %{$right}=" . convert_str($left);
+        }
+        else {
+            $str = "%{$right}=" . convert_str($left);
+        }
     }
     elsif ($act->[2] == ACT_HAVE_STR_VAR) {
         $str = convert_str($str);
@@ -623,7 +630,7 @@ sub generate_if_statement {
         print "matched = ( $lua_var == \"$op_param\" )\n";
     }
     elsif(exists $number_op{$op}) {
-        print "matched = ( $lua_var $number_op{$op} $op_param)\n";
+        print "matched = ( $lua_var ~= nil and $lua_var $number_op{$op} $op_param)\n";
     }
     else {
         # 处理 '@beginWiths %{request_header.host}'的情况
@@ -634,7 +641,7 @@ sub generate_if_statement {
             print "matched, matched_name = waf_${op}($lua_var, $op_param)\n";
         }
         else {
-            $op_param =~ s{\\([^\\])}{\\\\$1}g if $op eq 'rx';
+            $op_param =~ s/\\(?!")/\\\\/g if $op eq 'rx';
             print "matched, matched_name = waf_${op}($lua_var, \"$op_param\")\n";
         }
     }
@@ -643,6 +650,11 @@ sub generate_if_statement {
     }
     else {
         print "if matched then\n";
+    }
+    if ($op eq 'rx' || $op eq 'pm' || $op eq 'pmFromFile') {
+        print "waf_v['MATCHED_VAR_NAME'] = matched_name\n";
+        print "waf_v['MATCHED_VAR'] = matched[0]\n";
+        print "waf_v_tx = matched\n";
     }
 }
 
@@ -723,6 +735,8 @@ my $str = <>;
 $waf_trans->gen_code;
 $waf_op->gen_code;
 $waf_act->gen_code;
+print "local waf_var = require 'waf_var'\n";
+print "local waf_v = {}\n";
 my $result = parse($str);
 #print Dumper($result);
 generate($result);

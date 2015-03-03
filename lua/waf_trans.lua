@@ -1,13 +1,17 @@
-require "string_utils"
-
+--require "string_utils"
+local waf_var = require 'waf_var'
+local copy = waf_var.copy
 local M = {}
 -- todo: dummy function
 
 local function do_list(func, list)
+   local result = {}
    for _, h in ipairs(list) do
-      for k, v in pairs(h) do
+      local hash = copy(h)
+      table.insert(result, hash)
+      for k, v in pairs(hash) do
          local nv = func(v)
-         h[k] = nv
+         hash[k] = nv
       end
    end
 end
@@ -25,7 +29,7 @@ function M.htmlEntityDecode(list)
 end
 
 function M.lowercase(list)
-   do_list(string.lowercase, list)
+   do_list(string.lower, list)
    return list
 end
 

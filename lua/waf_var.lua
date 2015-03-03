@@ -11,7 +11,7 @@ local ngx_req_raw_header = ngx.req.raw_header
 local ngx_req_get_body_file = ngx.req.get_body_file
 local ngx_req_read_body = ngx.req.read_body
 local ngx_req_raw_header = ngx.req.raw_header
-
+local fast_match = ngx.re.fast_match
 function M.hash_to_array(hash)
    local keys = {}
    local vals = {}
@@ -25,6 +25,61 @@ function M.hash_to_array(hash)
    return res
 end
 
+local function deepcopy(orig)
+   local orig_type = type(orig)
+   local copy
+   if orig_type == 'table' then
+      copy = {}
+      for orig_key, orig_value in next, orig, nil do
+         copy[deepcopy(orig_key)] = deepcopy(orig_value)
+      end
+      setmetatable(copy, deepcopy(getmetatable(orig)))
+   else -- number, string, boolean, etc
+      copy = orig
+   end
+   return copy
+end
+
+function M.copy(orig)
+   return deepcopy(orig)
+end
+
+function M.shallowcopy(orig)
+    local orig_type = type(orig)
+    local copy
+    if orig_type == 'table' then
+        copy = {}
+        for orig_key, orig_value in pairs(orig) do
+            copy[orig_key] = orig_value
+        end
+    else -- number, string, boolean, etc
+        copy = orig
+    end
+    return copy
+end
+
+function M.remove_by_rx_key(hash, key_rx)
+   for k, v in pairs(hash) do
+      if fast_match(k, key_rx, "jo", key_rx) then
+         hash[k] = nil
+      end
+   end
+end
+
+function M.remove_by_key(hash, key)
+   hash[key] = nil
+end
+
+function M.filter_by_rx_key(hash, key_rx)
+   local result = {}
+   for k, v in pairs(hash) do
+      if fast_match(k, key_rx, "jo", key_rx) then
+         result[k] = v
+      end
+   end
+   return result
+end
+
 local function get_keys(hash)
    local keys = {}
    for k, v in pairs(hash) do
@@ -35,19 +90,34 @@ end
 
 -- ARGS_GET
 function M.get_args_get()
-   return ngx_req_get_uri_args()
+   local args = ngx_req_get_uri_args()
+   --  Arguments without the =<value> parts are treated as boolean arguments. GET /test?foo&bar will yield: 
+   --  foo: true
+   --  bar: true
+   for k, v in pairs(args) do
+      if (v == true) then
+         args[k] = nil
+      end
+   end
+   return args
 end
 
 -- ARGS_POST
 function M.get_args_post()
    ngx_req_read_body()
-   return ngx_req_get_post_args()
+   local args = ngx_req_get_post_args()
+   for k, v in pairs(args) do
+      if (v == true) then
+         args[k] = nil
+      end
+   end
+   return args
 end
 
 -- ARGS
 function M.get_args()
-   local args = ngx_req_get_uri_args()
-   local args_post = ngx_req_get_post_args()
+   local args = M.get_args_get()
+   local args_post = M.get_args_post()
    for k, v in pairs(args_post) do
       args[k] = v
    end
@@ -57,25 +127,30 @@ end
 -- ARGS_GET_NAMES
 function M.get_args_get_names()
    local args = ngx_req_get_uri_args()
-   -- TODO: 
    --return get_keys(args)
-   return args
+   local r = {}
+   for k, v in pairs(args) do
+      r[k] = k
+   end
+   return r
 end
 
 -- ARGS_POST_NAMES
 function M.get_args_post_names()
    local args = ngx_req_get_post_args()
-   -- TODO:
-   --return get_keys(args)
-   return args
+   local r = {}
+   for k, v in pairs(args) do
+         r[k] = k
+   end
+   return r
 end
 
 -- ARGS_NAMES
 function M.get_args_names()
-   local args = ngx_req_get_post_args()
-   local args2 = ngx_req_get_uri_args()
+   local args = M.get_args_get_names()
+   local args2 = M.get_args_post_names()
    for k, v in pairs(args2) do
-      args[k] = v;
+      args[k] = v
    end
    return args
 end
@@ -113,7 +188,8 @@ end
 -- REQUEST_COOKIES
 function M.get_request_cookies()
    local cookies = {}
-   for word in string.gmatch(raw_header, "Cookie: ([^\r\n]+)") do
+   local raw_header = ngx_req_raw_header()
+   for str_cookies in string.gmatch(raw_header, "Cookie: ([^\r\n]+)") do
       for k, v in string.gmatch(str_cookies, "(%S+)=(%S+)") do
          if v:sub(v:len())==";" then
             cookies[k]=v:sub(1,v:len()-1)
