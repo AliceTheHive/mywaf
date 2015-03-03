@@ -14,6 +14,7 @@ local function do_list(func, list)
          hash[k] = nv
       end
    end
+   return result
 end
 
 function M.normalisePath(list)
@@ -29,8 +30,7 @@ function M.htmlEntityDecode(list)
 end
 
 function M.lowercase(list)
-   do_list(string.lower, list)
-   return list
+   return do_list(string.lower, list)
 end
 
 function M.compressWhiteSpace(list)

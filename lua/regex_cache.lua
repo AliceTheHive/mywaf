@@ -434,10 +434,10 @@ local function re_match_helper(subj, regex, opts, want_caps, res, nth)
 end
 
 function ngx.re.fast_match(subj, regex, opts)
-    return re_match_helper(subj, regex, opts, nil, true, nil)
+    return re_match_helper(subj, regex, opts, true, nil, nil)
 end
 
-function ngx.re.fast_find(subj, regex, opts, key, nth)
+function ngx.re.fast_find(subj, regex, opts, nth)
     return re_match_helper(subj, regex, opts, false, nil, nth)
 end
 

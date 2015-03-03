@@ -53,7 +53,7 @@ end
 local function contains_hash(hash, word)
    local word_len = #word
    for k, v in pairs(hash) do
-      if lib_contain(v, #v, word, word_len) ~= 0 then
+      if lib_contains(v, #v, word, word_len) ~= 0 then
          return v, k
       end
    end
@@ -120,20 +120,6 @@ function M.within(list, word)
    return do_list(within_hash, list, word)
 end
 
-local function contains_hash(hash, word)
-   local word_len = #word
-   for k, v in pairs(hash) do
-      if lib_contains(v, #v, word, word_len) ~= 0 then
-         return v, k
-      end
-   end
-   return false
-end
-
-function M.contains(list, word)
-   return do_list(contains_hash, list, word)
-end
-
 local acmp_cache = new_tab(4, 4)
 
 local function pm_hash(hash, word)
@@ -146,8 +132,10 @@ local function pm_hash(hash, word)
    end
    for k, v in pairs(hash) do
       if lib_pm_match(acmp, v, #v, out, out_len) ~= 0 then
-         ngx.log(ngx.ERR, "pm result: ", ffi_string(out, out_len))
-         return ffi_string(out, out_len), k
+         local t = {}
+         t[0] = v
+         t[1] = ffi_string(out)
+         return t, k
       end
    end
    return false

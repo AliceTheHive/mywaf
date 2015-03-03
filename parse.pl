@@ -189,7 +189,7 @@ sub parse {
     my $previous_rule;
     my @list_of_rules = ();
     for my $line (@lines) {
-        if ($line =~ /^\s*SecRule\s+(\S+)\s+"((?:[^"\n]|\\\")+)"\s+(?:\\\n)?\s*"((?:[^"\n]|\\\")+)"/) {
+        if ($line =~ /^\s*SecRule\s+(\S+)\s+"((?:\\"|[^"])+)"\s+\s*"((?:\\"|[^"])+)"/) {
             my %rule = ();
             my ($variables, $operator, $actions) = ($1, $2, $3);
             #print "VAR: $variables, OP: $operator, ACT: $actions\n";
@@ -658,6 +658,16 @@ sub generate_if_statement {
     }
 }
 
+sub generate_attribute {
+    my ($rule) = @_;
+    if (exists $rule->{id}) {
+        print "waf_v['RULE:ID'] = '", $rule->{id}, "'\n";
+    }
+    if (exists $rule->{msg}) {
+        print "waf_v['RULE:MSG'] = '", $rule->{msg}, "'\n";
+    }
+}
+
 sub generate_end_if {
     print "end\n";
 }
@@ -708,7 +718,7 @@ sub generate {
             next;
         }
         generate_if_statement($lua_var, $rule->{op});
-
+        generate_attribute($rule);
         my @disruptive = grep { is_act_disruptive $_->[0] } @{ $rule->{act} };
         my @non_disruptive = grep { !is_act_disruptive $_->[0] } @{ $rule->{act} };
         if ($rule->{chain}) {
