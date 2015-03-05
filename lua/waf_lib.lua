@@ -13,6 +13,14 @@ int validateUrlEncoding(const char *input, long int input_length);
 int validateUtf8Encoding(const char *value, int value_len);
 int endsWith(const char *target, int target_length, const char *match, int match_length);
 int beginsWith(const char *target, int target_length, const char *match, int match_length);
+int hexEncode(const unsigned char *input, long int input_len, char *output, long int output_len);
+int hexDecode(unsigned char *input, long int input_len);
+int normalizePath(unsigned char *input, long int input_len);
+int trimLeft(const unsigned char *input, long int input_len, char **rval);
+int trimRight(const unsigned char *input, long int input_len, char **rval);
+int trim(const unsigned char *input, long int input_len, char **rval);
+int removeNulls(const unsigned char *input, long int input_len, char *output, int output_len);
+int replaceNulls(unsigned char *input, long int input_len);
 ]]
 waf_lib = ffi.load("/usr/local/openresty/lualib/libwaf.so")
 

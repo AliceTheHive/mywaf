@@ -55,9 +55,58 @@ TestTrans = {}
 
 function TestTrans:test_waf_lowercase()
    local list = g('ABCD')
-   val = waf_trans.lowercase(list)
+   local val = waf_trans.lowercase(list)
    assertEquals(val[1]['name'], 'abcd')
    assertEquals(list[1]['name'], 'ABCD')
+end
+
+function TestTrans:test_waf_hexEncode()
+   local list = g('hexEncode')
+   local val = waf_trans.hexEncode(list)
+   assertEquals(val[1]['name'], '686578456e636f6465')
+
+end
+
+function TestTrans:test_waf_hexDecode()
+   local list = g('686578456e636f6465')
+   local val = waf_trans.hexDecode(list)
+   assertEquals(val[1]['name'], 'hexEncode')
+end
+
+function TestTrans:test_waf_normalisePath()
+   local list = g('/usr////test///')
+   local val = waf_trans.normalisePath(list)
+   assertEquals(val[1]['name'], '/usr/test/')
+end
+
+function TestTrans:test_waf_trim()
+   local list = g(' test trim ')
+   local val = waf_trans.trim(list)
+   assertEquals(val[1]['name'], 'test trim')
+end
+
+function TestTrans:test_waf_trimLeft()
+   local list = g(' test')
+   local val = waf_trans.trimLeft(list)
+   assertEquals(val[1]['name'], 'test')
+end
+
+function TestTrans:test_waf_trimRight()
+   local list = g('test ')
+   local val = waf_trans.trimRight(list)
+   assertEquals(val[1]['name'], 'test')
+end
+
+function TestTrans:test_waf_removeNulls()
+   local list = g("remove\0Nulls")
+   local val = waf_trans.removeNulls(list)
+   assertEquals(val[1]['name'], 'removeNulls')
+end
+
+function TestTrans:test_waf_replaceNulls()
+   local list = g("replace\0Nulls")
+   local val = waf_trans.replaceNulls(list)
+   assertEquals(val[1]['name'], 'replace Nulls')
 end
 
 unit.LuaUnit.run()

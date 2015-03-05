@@ -604,7 +604,12 @@ sub generate_acts {
         }
         elsif ($waf_act->is_supported($act_op) ) {
             $act_var = $act_var && gen_param_expression($act);
-            print "waf_$act_op($act_var)\n";
+            if($act_op eq 'logdata') {
+                print "waf_$act_op(waf_v, $act_var)\n";
+            }
+            else {
+                print "waf_$act_op($act_var)\n";
+            }
         }
         else {
             print LOG "act_op: $act_op is not suppored\n";

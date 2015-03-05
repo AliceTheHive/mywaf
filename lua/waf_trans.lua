@@ -1,6 +1,18 @@
 --require "string_utils"
+local ffi = require("ffi")
+local ffi_new = ffi.new
+local ffi_string = ffi.string
 local waf_var = require 'waf_var'
 local copy = waf_var.copy
+local lib_hexEncode = waf_lib.hexEncode
+local lib_hexDecode = waf_lib.hexDecode
+local lib_normalizePath = waf_lib.normalizePath
+local lib_trim = waf_lib.trim
+local lib_trimLeft = waf_lib.trimLeft
+local lib_trimRight = waf_lib.trimRight
+local lib_removeNulls = waf_lib.removeNulls
+local lib_replaceNulls = waf_lib.replaceNulls
+
 local M = {}
 -- todo: dummy function
 
@@ -17,8 +29,18 @@ local function do_list(func, list)
    return result
 end
 
+function normlize_path(str)
+   local input = ffi_new("char[?]", #str, str)
+   local len = lib_normalizePath(input, #str)
+   return ffi_string(input, len)
+end
+
 function M.normalisePath(list)
-   return list
+   return do_list(normlize_path, list)
+end
+
+function M.normalizePath(list)
+   return do_list(normlize_path, list)
 end
 
 function M.normalisePathWindows(list)
@@ -45,43 +67,94 @@ function M.replaceComments(list)
    return list
 end
 
-function M.removeNulls(list)
-   return list
+function remove_nulls(str)
+   local out = ffi_new("char[?]", #str)
+   local len = lib_removeNulls(str, #str, out, #str)
+   return ffi_string(out, len)
 end
 
-function M.trim(list)
-   --do_list(string_utils.trim, list)
-   return list
+function M.removeNulls(list)
+   return do_list(remove_nulls, list)
+end
+
+local function trim_left(str)
+   local out = ffi_new("char*[1]")
+   local len = lib_trimLeft(str, #str, out)
+   if len == #str then
+      return str
+   else
+      return ffi_string(out[0], len)
+   end
 end
 
 function M.trimLeft(list)
-   --do_list(string_utils.trimLeft, list)
-   return list
+   return do_list(trim_left, list)
+end
+
+local function trim_right(str)
+   local out = ffi_new("char*[1]")
+   local len = lib_trimRight(str, #str, out)
+   if len == #str then
+      return str
+   else
+      return ffi_string(out[0], len)
+   end
 end
 
 function M.trimRight(list)
-   --do_list(string_utils.trimRight, list)
-   return list
+   return do_list(trim_right, list)
+end
+
+local function trim(str)
+   local s = trim_left(str)
+   return trim_right(s)
+end
+
+function M.trim(list)
+   return do_list(trim, list)
 end
 
 function M.replaceComments(list)
    return list
 end
 
+local function replace_nulls(str)
+   local out = ffi_new('char[?]', #str, str)
+   local len = lib_replaceNulls(out, #str)
+   return ffi_string(out, len)
+end
+
 function M.replaceNulls(list)
-   return list
+   return do_list(replace_nulls, list)
 end
 
 function M.removeWhitespace(list)
    return list
 end
 
+local function hexEncode_single(str)
+   local out_len = 2 * #str + 1;
+   local out = ffi_new("char[?]", out_len)
+   lib_hexEncode(str, #str, out, out_len)
+   return ffi_string(out, out_len - 1)
+end
+
 function M.hexEncode(list)
-   return list
+   return do_list(hexEncode_single, list)
+end
+
+local function hexDecode_single(str)
+   local out = ffi_new('char[?]', #str, str)
+   local len = lib_hexDecode(out, #str)
+   if len <= 0 then
+      return ""
+   else
+      return ffi_string(out, len)
+   end
 end
 
 function M.hexDecode(list)
-   return list
+   return do_list(hexDecode_single, list)
 end
 
 function M.base64Encode(list)
