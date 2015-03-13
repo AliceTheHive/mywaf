@@ -52,9 +52,9 @@ function TestOp:test_waf_pm()
 end
 
 function TestOp:test_waf_pmFromFile()
-   matched, name = waf_op.pm(g('the good bad ugly god'), "test_pm.data")
+   matched, name = waf_op.pmFromFile(g('the good bad ugly god'), "test_pm.data")
    assertEquals(matched[0], 'the good bad ugly god')
-   assertEquals(matched[1], 'ugly')
+   assertEquals(matched[1], 'bad')
    assertEquals(name, 'name')
 end
 

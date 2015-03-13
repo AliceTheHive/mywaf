@@ -7,7 +7,7 @@ SRCDIR:=                # other src dir (not include current dir)
 # # Now alter any implicit rules' variables if you like, e.g.:
 
 CC:=gcc
-CFLAGS := -g -Wall -fPIC -shared
+CFLAGS := -ggdb -Wall -fPIC -shared
 CPPFLAGS := $(CFLAGS)
 CPPFLAGS += $(addprefix -I,$(INCLUDES))
 CPPFLAGS += -MMD

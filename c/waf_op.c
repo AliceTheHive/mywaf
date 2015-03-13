@@ -101,13 +101,14 @@ ACMP *pmFromFile_compile(const char *filenames, const char *base_path)
     char *next = NULL;
     char *start = NULL;
     char *end = NULL;
-
+    char *bak = NULL;
     ACMP *p;
-
+    
     p = acmp_create(0, NULL);
     if (p == NULL) return NULL;
     
     fname = strdup(filenames);
+    bak = fname;
     for (;;) {
 
         while((isspace(*fname) != 0) && (*fname != '\0')) fname++;
@@ -144,11 +145,10 @@ ACMP *pmFromFile_compile(const char *filenames, const char *base_path)
         }
         fname = next;
         fclose(fp);
-        fp = NULL;
     }
 
     acmp_prepare(p);
-    free(fname);
+    free(bak);
     return p;
 }
 
