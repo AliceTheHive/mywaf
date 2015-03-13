@@ -5,6 +5,7 @@ local base = require "resty.core.base"
 local new_tab = base.new_tab
 local M = {}
 
+local RULE_PATH = "/usr/local/openresty/nginx/waf/rules"
 local lib_containsWord = waf_lib.containsWord
 local lib_contains = waf_lib.contains
 local lib_beginsWith = waf_lib.beginsWith
@@ -13,6 +14,7 @@ local lib_within = waf_lib.within
 local lib_pm_match = waf_lib.pm_match
 local lib_pm_compile = waf_lib.pm_compile
 local lib_pm_compile_ok = waf_lib.is_pm_compile_ok
+local lib_pmFromFile_compile = waf_lib.pmFromFile_compile
 local fast_match = ngx.re.fast_match
 local next = next
 
@@ -141,13 +143,17 @@ local function pm_hash(hash, word)
    return false
 end
 
-function M.pm(list, word)
+local function pm_execute(list, word, isFromFile)
    if word == '' or word == nil then
       ngx.log(ngx.ERR, "pm word is null", debug.traceback("Stack trace"))
       return false
    end
    if not acmp_cache[word] then
-      acmp = lib_pm_compile(word)
+      if isFromFile == true then
+         acmp = lib_pmFromFile_compile(word, RULE_PATH)
+      else
+         acmp = lib_pm_compile(word)
+      end
       if lib_pm_compile_ok(acmp) ~= 0 then
          acmp_cache[word] = acmp
       else
@@ -157,5 +163,25 @@ function M.pm(list, word)
    end
    return do_list(pm_hash, list, word)
 end
+
+function M.pm(list, word)
+   return pm_execute(list, word, false)
+end
+
+-- used for testing only
+function M.setPmFilePath(path)
+   local r = RULE_PATH
+   RULE_PATH = path
+   return r
+end
+
+function M.pmFromFile(list, word)
+   return pm_execute(list, word, true)
+end
+
+function M.validateUrlEncoding(list, word)
+   return false
+end
+
 
 return M

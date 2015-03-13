@@ -51,6 +51,13 @@ function TestOp:test_waf_pm()
    assertEquals(name, 'name')
 end
 
+function TestOp:test_waf_pmFromFile()
+   matched, name = waf_op.pm(g('the good bad ugly god'), "test_pm.data")
+   assertEquals(matched[0], 'the good bad ugly god')
+   assertEquals(matched[1], 'ugly')
+   assertEquals(name, 'name')
+end
+
 TestTrans = {}
 
 function TestTrans:test_waf_lowercase()

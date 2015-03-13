@@ -1,4 +1,4 @@
-
+#include <stdio.h>
 #include <ctype.h>
 #include <string.h>
 #include "acmp.h"
@@ -92,6 +92,64 @@ int pm_match(ACMP *parser, const char *value, int value_len, char *out, int out_
         return 1;
     }
     return 0;
+}
+#define HUGE_STRING_LEN 2048
+ACMP *pmFromFile_compile(const char *filenames, const char *base_path)
+{
+    char buf[HUGE_STRING_LEN + 1];
+    char *fname = NULL;
+    char *next = NULL;
+    char *start = NULL;
+    char *end = NULL;
+
+    ACMP *p;
+
+    p = acmp_create(0, NULL);
+    if (p == NULL) return NULL;
+    
+    fname = strdup(filenames);
+    for (;;) {
+
+        while((isspace(*fname) != 0) && (*fname != '\0')) fname++;
+        if (*fname == '\0') break;
+        next = fname;
+        while((isspace(*next) == 0) && (*next != '\0')) next++;
+        while((isspace(*next) != 0) && (*next != '\0')) *(next++) = '\0';
+        snprintf(buf, sizeof(buf), "%s/%s", base_path, fname);
+
+        FILE* fp = fopen(buf, "r");
+        if (NULL == fp) {
+            break;
+        }
+
+        for(;;) {
+            // Assume one line's size is smaller than HUGE_STRING_LEN, keep it simple.
+            if (fgets(buf, HUGE_STRING_LEN, fp) == NULL) {
+                break;
+            }
+
+            start = buf;
+            while ((isspace(*start) != 0) && (*start != '\0')) start++;
+            /* Ignore empty lines and comments */
+            if ((start == end) || (*start == '#')) continue;
+            
+            end = buf + strlen(buf);
+            if (end > start) end--;
+            while ((end > start) && (isspace(*end) != 0)) end--;
+            if (end > start) {
+                *(++end) = '\0';
+            }
+
+            acmp_add_pattern(p, start, NULL, NULL, (end - start));
+        }
+        fname = next;
+        fclose(fp);
+        fp = NULL;
+    }
+
+    acmp_prepare(p);
+    free(fname);
+    return p;
 }
 
 int within(const char *target, int target_length, const char *match, int match_length)
@@ -317,7 +375,7 @@ int endsWith(const char *target, int target_length, const char *match, int match
 
 int beginsWith(const char *target, int target_length, const char *match, int match_length)
 {
-     /* The empty string always matches */
+    /* The empty string always matches */
     if (match_length == 0) {
         /* Match. */
         return 1;

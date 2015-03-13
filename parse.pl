@@ -3,7 +3,7 @@ use warnings;
 use Data::Dumper;
 use Carp qw( croak );
 open LOG, ">gen.log";
-
+my $current_conf;
 our %GLOBAL_VAR = ();
 our %GLOBAL_EXP = ();
 our %CACHED_EXP = ();
@@ -102,7 +102,7 @@ sub parse_var {
             next;
         }
         if ($v ~~ /^([A-Z_]+)/ && ! $waf_var->is_supported($1) && $1 !~ /TX/i) {
-            print LOG "var:($v) is not supported\n";
+            print LOG "var:($v) is not supported in $current_conf\n";
             next;
         }
         if ( $v =~ /^[A-Z_]+$/ ) {
@@ -133,7 +133,10 @@ sub parse_op {
     if ($str =~ /^(!?)@(\w+)\s+(.+)/) {
         return [$2, $3, $1];
     }
-    if ($str =~/^([^@].*)/) {
+    elsif ($str =~ /^(!?)@(\w+)/) {
+        return [$2, $1, ""];
+    }
+    elsif ($str =~/^([^@].*)/) {
         return ['rx', $1];
     }
 }
@@ -258,7 +261,7 @@ sub get_main_arg {
             $name = get_lua_var_name();
             my $func_name = $waf_var->get_function_name($var);
             unless ($func_name) {
-                croak "$var is not suppored\n";
+                croak "main_arg:$var is not supported in $current_conf\n";
             }
             print "local $name = waf_var.$func_name()\n";
         }
@@ -405,7 +408,6 @@ sub generate_vars {
 sub combine_vars {
     my ($list, $not_combine) = @_;
     croak "list is null" unless $list;
-    my $lua_table = get_lua_var_name();
 
     if ($not_combine) {
         my $var_info = $list->[0];
@@ -418,6 +420,7 @@ sub combine_vars {
         return get_cached_exp $exp;
     }
     my $not_cache = 0;
+    my $lua_table = get_lua_var_name();
     print "local $lua_table = {}\n";
     for my $var_info (@$list) {
         my ($var_name, $var_val, $var_type, $var_exp) = @$var_info;
@@ -463,7 +466,7 @@ sub transform_vars {
             my $act_op = $act->[0];
             my $act_var = $act->[1];
             unless ($waf_trans->is_supported($act_var)) {
-                print LOG "transform:$act_var is not supported\n";
+                print LOG "transform:$act_var is not supported in $current_conf\n";
                 next;
             }
             my $func_name = $waf_trans->get_function_name($act_var);
@@ -612,7 +615,7 @@ sub generate_acts {
             }
         }
         else {
-            print LOG "act_op: $act_op is not suppored\n";
+            print LOG "act_op: $act_op is not supported in $current_conf\n";
         }
     }
 }
@@ -746,12 +749,19 @@ sub generate {
 }
 
 $/=undef;
-my $str = <>;
+
 $waf_trans->gen_code;
 $waf_op->gen_code;
 $waf_act->gen_code;
 print "local waf_var = require 'waf_var'\n";
 print "local waf_v = {}\n";
+my $str = "";
+for my $file_name (@ARGV) {
+    $current_conf = $file_name;
+    open FILE, "$file_name" or die "cannot open $file_name $!";
+    $str .= <FILE>;
+    close(FILE);
+}
 my $result = parse($str);
 #print Dumper($result);
 generate($result);

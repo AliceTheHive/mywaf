@@ -3,6 +3,7 @@ local ffi = require 'ffi'
 ffi.cdef[[
 typedef struct ACMP ACMP;
 ACMP *pm_compile(const char *phrase);
+ACMP *pmFromFile_compile(const char *filenames, const char *base_path);
 int pm_match(ACMP *parser, const char *value, int value_len, char *out, int out_len);
 int is_pm_compile_ok(ACMP *acmp);
 
@@ -22,6 +23,5 @@ int trim(const unsigned char *input, long int input_len, char **rval);
 int removeNulls(const unsigned char *input, long int input_len, char *output, int output_len);
 int replaceNulls(unsigned char *input, long int input_len);
 ]]
+
 waf_lib = ffi.load("/usr/local/openresty/lualib/libwaf.so")
-
-
