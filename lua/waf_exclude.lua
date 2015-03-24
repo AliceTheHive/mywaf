@@ -4,20 +4,30 @@ M.args = { ["/cgi-bin/epg_index.fcgi"]={'picinfo','channelidinfo'},
            ['/cgi-bin/chcaportal_index.fcgi']={'picinfo','channelidinfo'},
            ["/api/file/upload_meta"]={"metaData"},
            ["/aaa/signon"]={"loginName"}
+           ['/sdkproxy/sendsms'] = {},
+           ['/log/report_terminal'] = {},
+           ['/api/dir/content'] = {},
+           ['/log/report_exception'] = {},
+           ['/log/report_terminal'] = {},
+           ['/sdkproxy/sendsms.action'] = {},
+           ['/api/dir/mkdir'] = {},
+           ['/api/weibo/mark'] = {},
+           ['/api/weibo/so'] = {},
+           ['/api/dir/content_count'] = {},
+           ['/ss/spSearch/getProgrames'] = {}
          }
 
-M.urls = {
-   ['/sdkproxy/sendsms'] = 1,
-   ['/log/report_terminal'] = 1,
-   ['/api/dir/content'] = 1,
-   ['/log/report_exception'] = 1,
-   ['/log/report_terminal'] = 1,
-   ['/sdkproxy/sendsms.action'] = 1,
-   ['/api/dir/mkdir'] = 1,
-   ['/api/weibo/mark'] = 1,
-   ['/api/weibo/so'] = 1,
-   ['/api/dir/content_count'] = 1,
-   ['/ss/spSearch/getProgrames'] = 1
-}
+local excluded_urls = {}
+
+for k, v in ipairs(M.args) do
+   if #v == 0 then
+      excluded_urls[k] = 1
+      M.args[k] = nil
+   end
+end
+
+function M.is_url_excluded(url)
+   return excluded_urls[url] ~= nil
+end
 
 return M

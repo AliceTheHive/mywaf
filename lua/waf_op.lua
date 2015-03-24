@@ -28,7 +28,7 @@ local function rx_hash(hash, regex)
 end
 
 function M.rx(list, regex)
-   for _, h in pairs(list) do   
+   for _, h in ipairs(list) do
       local m, n = rx_hash(h, regex)
       if m then
          return m, n
@@ -37,7 +37,7 @@ function M.rx(list, regex)
 end
 
 local function do_list(func, list, word)
-   for _, h in pairs(list) do
+   for _, h in ipairs(list) do
       local v, n = func(h, word)
       if v then
          if type(v) ~= 'table' then
