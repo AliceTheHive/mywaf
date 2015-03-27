@@ -24,4 +24,4 @@ int removeNulls(const unsigned char *input, long int input_len, char *output, in
 int replaceNulls(unsigned char *input, long int input_len);
 ]]
 
-waf_lib = ffi.load("/usr/local/openresty/lualib/libwaf.so")
+waf_lib = ffi.load("/usr/local/fountain/3rdparty/nginx/lualib/libwaf.so")

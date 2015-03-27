@@ -1,4 +1,4 @@
-require "regex_cache" 
+require "regex_cache"
 require 'waf_lib'
 local unit = require('luaunit')
 local assertEquals = unit.assertEquals
@@ -16,7 +16,7 @@ TestOp = {}
 function TestOp:test_waf_rx()
    matched, name = waf_op.rx(g('123abc'), "(\\d+).+")
    assertEquals(matched[0],'123abc')
-   assertEquals(matched[1],'123')   
+   assertEquals(matched[1],'123')
    assertEquals(name, 'name')
 end
 

@@ -22,6 +22,8 @@ local function rx_hash(hash, regex)
    for k, v in pairs(hash) do
       local match = fast_match(v, regex, "jo")
       if match ~= nil and next(match) ~= nil then
+         -- match[0] eq matched part of a str orginal, now begin the str
+         match[0] =v
          return match, k
       end
    end

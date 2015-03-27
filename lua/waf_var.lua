@@ -1,5 +1,5 @@
 local M = {}
-
+local waf_exclude = require "waf_exclude"
 local ngx_req_get_method = ngx.req.get_method
 local ngx_req_get_uri_args = ngx.req.get_uri_args
 local ngx_req_get_post_args = ngx.req.get_post_args
@@ -12,6 +12,7 @@ local ngx_req_get_body_file = ngx.req.get_body_file
 local ngx_req_read_body = ngx.req.read_body
 local ngx_req_raw_header = ngx.req.raw_header
 local fast_match = ngx.re.fast_match
+local cjson = require "cjson.safe"
 function M.hash_to_array(hash)
    local keys = {}
    local vals = {}
@@ -23,6 +24,18 @@ function M.hash_to_array(hash)
    res[0] = keys
    res[1] = vals
    return res
+end
+
+function M.exclude_args(args)
+   local r = waf_exclude.args[ngx.var.uri]
+   if r ~= nil then
+      for _, a in ipairs(r) do
+         for n, v in pairs(args) do
+            if a == n then args[n] = nil end
+         end
+      end
+   end
+   return args
 end
 
 local function deepcopy(orig)
@@ -88,30 +101,65 @@ local function get_keys(hash)
    return keys
 end
 
--- ARGS_GET
-function M.get_args_get()
-   local args = ngx_req_get_uri_args()
-   --  Arguments without the =<value> parts are treated as boolean arguments. GET /test?foo&bar will yield: 
+function get_json(args, name, t)
+   if t == nil then return end
+   for k, v in pairs(t) do
+       if type(v) ~= 'table' then
+          args[name .. "." .. k] = v
+       else
+          get_json(args, name .. "." .. k, v)
+       end
+   end
+end
+
+local function normlise_args(args)
+   --  Arguments without the =<value> parts are treated as boolean arguments. GET /test?foo&bar will yield:
    --  foo: true
    --  bar: true
    for k, v in pairs(args) do
       if (v == true) then
          args[k] = nil
+         v = nil
+      elseif (type(v) == 'table') then
+         local str = ""
+         for _, s in ipairs(v) do
+            if "string" == type(s) then
+               str = str .. s;
+            end
+         end
+         args[k] = str
+         v = str
+      end
+      -- remove chinese characters
+      local from, to, err = v and ngx.re.find(v, "[\\u4E00-\\u9FFF]", "jo")
+      if from then
+         local new_str = ngx.re.gsub(v, "[\\u4E00-\\u9FFF]", "", "jo")
+         args[k] = new_str
+      end
+      -- 123 => '{'
+      if v and string.byte(v,1) == 123 then
+         local json = cjson.decode(v)
+         if json then
+            get_json(args, k, json)
+            args[k] = nil
+         end
       end
    end
+   args = M.exclude_args(args)
    return args
+end
+
+-- ARGS_GET
+function M.get_args_get()
+   local args = ngx_req_get_uri_args()
+   return normlise_args(args)
 end
 
 -- ARGS_POST
 function M.get_args_post()
    ngx_req_read_body()
    local args = ngx_req_get_post_args()
-   for k, v in pairs(args) do
-      if (v == true) then
-         args[k] = nil
-      end
-   end
-   return args
+   return normlise_args(args)
 end
 
 -- ARGS
@@ -124,35 +172,22 @@ function M.get_args()
    return args
 end
 
+-- do not check args
 -- ARGS_GET_NAMES
 function M.get_args_get_names()
-   local args = ngx_req_get_uri_args()
-   --return get_keys(args)
    local r = {}
-   for k, v in pairs(args) do
-      r[k] = k
-   end
    return r
 end
 
 -- ARGS_POST_NAMES
 function M.get_args_post_names()
-   local args = ngx_req_get_post_args()
    local r = {}
-   for k, v in pairs(args) do
-         r[k] = k
-   end
    return r
 end
 
 -- ARGS_NAMES
 function M.get_args_names()
-   local args = M.get_args_get_names()
-   local args2 = M.get_args_post_names()
-   for k, v in pairs(args2) do
-      args[k] = v
-   end
-   return args
+   return {}
 end
 
 -- QUERY_STRING
