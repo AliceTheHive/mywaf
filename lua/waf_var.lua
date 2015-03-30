@@ -131,9 +131,9 @@ local function normlise_args(args)
          v = str
       end
       -- remove chinese characters
-      local from, to, err = v and ngx.re.find(v, "[\\u4E00-\\u9FFF]", "jo")
+      local from, to, err = v and ngx.re.find(v, "[\x80-\xFF]{2,}", "jo")
       if from then
-         local new_str = ngx.re.gsub(v, "[\\u4E00-\\u9FFF]", "", "jo")
+         local new_str = ngx.re.gsub(v, "[\x80-\xFF]{2,}", "cc", "jo")
          args[k] = new_str
       end
       -- 123 => '{'
