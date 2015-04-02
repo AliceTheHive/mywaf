@@ -13,6 +13,7 @@ local ngx_req_read_body = ngx.req.read_body
 local ngx_req_raw_header = ngx.req.raw_header
 local fast_match = ngx.re.fast_match
 local cjson = require "cjson.safe"
+local luaxml = require "LuaXML_lib"
 function M.hash_to_array(hash)
    local keys = {}
    local vals = {}
@@ -101,7 +102,7 @@ local function get_keys(hash)
    return keys
 end
 
-function get_json(args, name, t)
+local function get_json(args, name, t)
    if t == nil then return end
    for k, v in pairs(t) do
        if type(v) ~= 'table' then
@@ -140,6 +141,12 @@ local function normlise_args(args)
       if v and string.byte(v,1) == 123 then
          local json = cjson.decode(v)
          if json then
+            get_json(args, k, json)
+            args[k] = nil
+         end
+      elseif v and string.byte(v,1) == 60 then
+         local xml = luaxml.eval(v)
+         if xml then
             get_json(args, k, json)
             args[k] = nil
          end
@@ -251,7 +258,13 @@ end
 
 -- REQUEST_HEADERS
 function M.get_request_headers()
-   return ngx_req_get_headers()
+   local headers = ngx_req_get_headers()
+   for k, v in pairs(headers) do
+      if type(v) == 'table' then
+         headers[k] = table.concat(v, ",")
+      end
+   end
+   return headers
 end
 
 -- REQUEST_HEADERS_NAMES
