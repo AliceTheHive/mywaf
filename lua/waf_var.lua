@@ -137,14 +137,15 @@ local function normlise_args(args)
          local new_str = ngx.re.gsub(v, "[\x80-\xFF]{2,}", "cc", "jo")
          args[k] = new_str
       end
-      -- 123 => '{'
-      if v and string.byte(v,1) == 123 then
+      -- 123 => '{' or '['
+      local ch = v and string.byte(v,1)
+      if ch == 123 or ch == 91 then
          local json = cjson.decode(v)
          if json then
             get_json(args, k, json)
             args[k] = nil
          end
-      elseif v and string.byte(v,1) == 60 then
+      elseif ch == 60 then
          local xml = luaxml.eval(v)
          if xml then
             get_json(args, k, json)

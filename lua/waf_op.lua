@@ -20,6 +20,13 @@ local next = next
 
 local function rx_hash(hash, regex)
    for k, v in pairs(hash) do
+      -- runtime overhead?
+      if type(v) ~= 'string' then
+         if type(v) ~= 'number' then
+            ngx.log(ngx.ERR, "rx_hash wrong type:", type(v))
+         end
+         return
+      end
       local match = fast_match(v, regex, "jo")
       if match ~= nil and next(match) ~= nil then
          -- match[0] eq matched part of a str orginal, now begin the str
