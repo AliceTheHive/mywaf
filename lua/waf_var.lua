@@ -14,6 +14,9 @@ local ngx_req_raw_header = ngx.req.raw_header
 local fast_match = ngx.re.fast_match
 local cjson = require "cjson.safe"
 local luaxml = require "LuaXML_lib"
+local base = require "resty.core.base"
+local new_tab = base.new_tab
+
 function M.hash_to_array(hash)
    local keys = {}
    local vals = {}

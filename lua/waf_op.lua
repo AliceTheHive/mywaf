@@ -143,7 +143,7 @@ local function pm_hash(hash, word)
    end
    for k, v in pairs(hash) do
       if lib_pm_match(acmp, v, #v, out, out_len) ~= 0 then
-         local t = {}
+         local t = new_tab(2,0)
          t[0] = v
          t[1] = ffi_string(out)
          return t, k

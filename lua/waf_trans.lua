@@ -18,9 +18,12 @@ local M = {}
 
 local function do_list(func, list)
    local result = {}
+   local c = 1
    for _, h in ipairs(list) do
       local hash = copy(h)
-      table.insert(result, hash)
+      -- just for speed. use counter
+      result[c] = hash
+      c = c + 1
       for k, v in pairs(hash) do
          local nv = func(v)
          hash[k] = nv
