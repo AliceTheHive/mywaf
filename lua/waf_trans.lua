@@ -20,7 +20,9 @@ local function do_list(func, list)
    local result = {}
    local c = 1
    for _, h in ipairs(list) do
-      local hash = copy(h)
+      -- just for spedd. no copy
+      -- local hash = copy(h)
+      local hash = h
       -- just for speed. use counter
       result[c] = hash
       c = c + 1

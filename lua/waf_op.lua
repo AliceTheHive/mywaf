@@ -16,6 +16,7 @@ local lib_pm_compile = waf_lib.pm_compile
 local lib_pm_compile_ok = waf_lib.is_pm_compile_ok
 local lib_pmFromFile_compile = waf_lib.pmFromFile_compile
 local fast_match = ngx.re.fast_match
+local ngx_re_find = ngx.re.find
 local next = next
 
 local function rx_hash(hash, regex)

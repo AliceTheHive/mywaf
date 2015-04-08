@@ -16,6 +16,7 @@ local cjson = require "cjson.safe"
 local luaxml = require "LuaXML_lib"
 local base = require "resty.core.base"
 local new_tab = base.new_tab
+local ngx_re_find = ngx.re.find
 
 function M.hash_to_array(hash)
    local keys = {}
@@ -135,7 +136,7 @@ local function normlise_args(args)
          v = str
       end
       -- remove chinese characters
-      local from, to, err = v and ngx.re.find(v, "[\x80-\xFF]{2,}", "jo")
+      local from, to, err = v and ngx_re_find(v, "[\x80-\xFF]{2,}", "jo")
       if from then
          local new_str = ngx.re.gsub(v, "[\x80-\xFF]{2,}", "cc", "jo")
          args[k] = new_str
