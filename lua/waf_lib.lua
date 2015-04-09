@@ -25,3 +25,23 @@ int replaceNulls(unsigned char *input, long int input_len);
 ]]
 
 waf_lib = ffi.load("/usr/local/fountain/3rdparty/nginx/lualib/libwaf.so")
+luaxml_lib = require "LuaXML_lib"
+
+init_var = {}
+init_var["TX:ANOMALY_SCORE"] = 0
+init_var["TX:SQL_INJECTION_SCORE"] = 0
+init_var["TX:XSS_SCORE"] = 0
+init_var["TX:INBOUND_ANOMALY_SCORE"] = 0
+init_var["TX:OUTBOUND_ANOMALY_SCORE"]=0
+
+init_var["TX:CRITICAL_ANOMALY_SCORE"] = 5
+init_var["TX:ERROR_ANOMALY_SCORE"] = 4
+init_var["TX:WARNING_ANOMALY_SCORE"] = 3
+init_var["TX:NOTICE_ANOMALY_SCORE"] = 2
+
+init_var["TX:INBOUND_ANOMALY_SCORE_LEVEL"] = 5
+init_var["TX:OUTBOUND_ANOMALY_SCORE_LEVEL"] = 4
+
+init_var["TX:ANOMALY_SCORE_BLOCKING"] = true
+
+waf_rules = assert(loadfile("/usr/local/fountain/3rdparty/nginx/waf_rules.lua"))

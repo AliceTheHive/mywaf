@@ -245,6 +245,7 @@ function M.get_request_cookies()
          end
       end
    end
+   cookies = normlise_args(cookies)
    return cookies
 end
 

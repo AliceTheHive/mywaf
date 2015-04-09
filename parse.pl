@@ -8,6 +8,7 @@ our %GLOBAL_VAR = ();
 our %GLOBAL_EXP = ();
 our %CACHED_EXP = ();
 my $in_recurrence = 0;
+my %ignored_rules;
 my %COLLECTION_VAR = (
     ARGS => 1,
     ARGS_NAMES =>1,
@@ -580,7 +581,7 @@ sub act_sort_func {
 }
 
 sub generate_acts {
-    my ($acts) = @_;
+    my ($lua_var, $acts) = @_;
     my %ignore = ( t      => 1, tag    => 1,
                    capture=> 1, rev    => 1,
                    ver    => 1, ctl    => 1,
@@ -603,7 +604,7 @@ sub generate_acts {
             print "goto $act_var\n";
         }
         elsif($act_op eq 'block') {
-            print "waf_block(waf_v)\n";
+            print "waf_block($lua_var, waf_v)\n";
         }
         elsif ($waf_act->is_supported($act_op) ) {
             $act_var = $act_var && gen_param_expression($act);
@@ -697,6 +698,10 @@ sub generate {
     }
 
     for my $rule (@list_of_rules) {
+        if (exists $ignored_rules{ $rule->{id} } ) {
+            print LOG "ignore rule id:", $rule->{id}, "\n";
+            next;
+        }
         my $op = $rule->{op}->[0];
         my $var = $rule->{var};
         my $op_param = $rule->{op}->[1];
@@ -730,7 +735,7 @@ sub generate {
         my @disruptive = grep { is_act_disruptive $_->[0] } @{ $rule->{act} };
         my @non_disruptive = grep { !is_act_disruptive $_->[0] } @{ $rule->{act} };
         if ($rule->{chain}) {
-            generate_acts \@non_disruptive;
+            generate_acts $lua_var, \@non_disruptive;
             my $chained_rule = $rule->{chain};
             for my $a (keys %ATTRIBUTE) {
                 $chained_rule->{$a} = $rule->{$a} unless $chained_rule->{$a};
@@ -739,22 +744,34 @@ sub generate {
             $in_recurrence = 1;
             generate([ $rule->{chain} ]);
             $in_recurrence = 0;
-            generate_acts \@disruptive;
+            generate_acts $lua_var, \@disruptive;
         }
         else {
-            generate_acts $rule->{act};
+            generate_acts $lua_var, $rule->{act};
         }
         generate_end_if();
     }
 }
 
+sub load_conf {
+    open FILE, "< ./parse.conf" or return;
+    while (my $line = <FILE>) {
+        while ($line =~ /(\d+)/g) {
+            $ignored_rules{$1} = 1;
+        }
+    }
+    close FILE;
+}
+
+
 $/=undef;
 
+load_conf();
 $waf_trans->gen_code;
 $waf_op->gen_code;
 $waf_act->gen_code;
 print "local waf_var = require 'waf_var'\n";
-print "local waf_v = {}\n";
+print "local waf_v = waf_var.copy(init_var)\n";
 my $str = "";
 for my $file_name (@ARGV) {
     $current_conf = $file_name;
