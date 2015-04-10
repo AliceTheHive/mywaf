@@ -14,7 +14,7 @@ local function purify_args(args)
    for _, tab in ipairs(args) do
       if type(tab) == 'table' then
          for k, v in pairs(tab) do
-            if ngx_re_find(v, "[\x80-\xFF]{2,}", "jo") then
+            if ngx_re_find(v, "[\x80-\xFF]", "jo") then
                args[k] = resty_string.to_hex(v)
             end
          end
@@ -25,12 +25,12 @@ end
 function M.block(args, v)
    if v["TX:ANOMALY_SCORE_BLOCKING"] then
       if v["TX:ANOMALY_SCORE"] >= v["TX:INBOUND_ANOMALY_SCORE_LEVEL"] then
-         purify_args(args)
+         --purify_args(args)
          ngx_log(LOG_ERR, "block!" .. cjson.encode(args))
          ngx.exit(404)
       end
    else
-      purify_args(args)
+      --purify_args(args)
       ngx_log(LOG_ERR, "block!" .. cjson.encode(args))
       ngx.exit(404)
    end
@@ -44,7 +44,7 @@ function M.logdata(v,msg)
    if v['RULE:MSG'] ~= nil then
       prefix = v['RULE:MSG'] .. ' ' .. prefix .. ' '
    end
-   local from, to = ngx_re_find(msg, "[\x80-\xFF]{2,}", "jo")
+   local from, to = ngx_re_find(msg, "[\x80-\xFF]", "jo")
    if from then
       msg = "HEX:" .. resty_string.to_hex(msg)
    end

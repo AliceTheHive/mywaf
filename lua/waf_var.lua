@@ -170,6 +170,10 @@ end
 -- ARGS_POST
 function M.get_args_post()
    ngx_req_read_body()
+   local headers = ngx_req_get_headers()
+   if headers['content-type'] ~= 'application/x-www-form-urlencoded' then
+      return {}
+   end
    local args = ngx_req_get_post_args()
    return normlise_args(args)
 end
