@@ -5,7 +5,7 @@ local base = require "resty.core.base"
 local new_tab = base.new_tab
 local M = {}
 
-local RULE_PATH = "/usr/local/openresty/nginx/waf/rules"
+local RULE_PATH = "/usr/local/fountain/3rdparty/nginx/waf/rules"
 local lib_containsWord = waf_lib.containsWord
 local lib_contains = waf_lib.contains
 local lib_beginsWith = waf_lib.beginsWith

@@ -99,11 +99,9 @@ function M.filter_by_rx_key(hash, key_rx)
 end
 
 local function get_keys(hash)
-   local keys = {}
    for k, v in pairs(hash) do
-      keys[#keys + 1] = k
+      hash[k] = k
    end
-   return keys
 end
 
 local function get_json(args, name, t)
@@ -256,8 +254,7 @@ end
 -- REQUEST_COOKIES_NAMES
 function M.get_request_cookies_names()
    local cookies = M.get_request_cookies()
-   -- TODO:
-   --return get_keys(cookies)
+   get_keys(cookies)
    return cookies
 end
 
@@ -280,8 +277,7 @@ end
 -- REQUEST_HEADERS_NAMES
 function M.get_request_headers_names()
    local headers = ngx_req_get_headers()
-   -- TODO:
-   --return get_keys(headers)
+   get_keys(headers)
    return headers
 end
 

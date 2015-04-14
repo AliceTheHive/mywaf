@@ -335,7 +335,8 @@ sub get_single_args {
                 }
                 else {
                     my $var_name = get_lua_var_name();
-                    print "local $var_name = $lua_hash" . "['$exp']\n";
+                    #print "local $var_name = $lua_hash" . "['$exp']\n";
+                    print "local $var_name = $lua_hash" . "['$sub_var']\n";
                     set_exp $exp, [$exp, $var_name, 1, $exp];
                 }
             }
